@@ -13,7 +13,6 @@ app.use(cors());
 app.use(express.json());
 
 // --- 认证中间件 (Authentication Middleware) ---
-// 这是一个“守卫”，所有需要登录才能访问的API，都需要先经过它
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // 格式: "Bearer TOKEN"
@@ -26,7 +25,6 @@ const authenticateToken = (req, res, next) => {
     if (err) {
       return res.sendStatus(403); // Forbidden: token无效或已过期
     }
-    // 将解码后的用户信息附加到请求对象上，方便后续路由使用
     req.user = user;
     next(); // 通过验证，放行到下一个路由
   });
@@ -38,24 +36,13 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { code } = req.body;
     if (!code) return res.status(400).json({ message: '缺少登录凭证code' });
-
     const wechatApiUrl = `https://api.weixin.qq.com/sns/jscode2session`;
-    const params = {
-      appid: process.env.WECHAT_APPID,
-      secret: process.env.WECHAT_APPSECRET,
-      js_code: code,
-      grant_type: 'authorization_code'
-    };
+    const params = { appid: process.env.WECHAT_APPID, secret: process.env.WECHAT_APPSECRET, js_code: code, grant_type: 'authorization_code' };
     const { data: wechatData } = await axios.get(wechatApiUrl, { params });
-
-    if (!wechatData.openid) {
-      return res.status(500).json({ message: '从微信获取openid失败', error: wechatData });
-    }
-
+    if (!wechatData.openid) return res.status(500).json({ message: '从微信获取openid失败', error: wechatData });
     const { openid } = wechatData;
     let [users] = await db.query('SELECT * FROM users WHERE openid = ?', [openid]);
     let user;
-
     if (users.length > 0) {
       user = users[0];
       await db.query('UPDATE users SET last_login_time = NOW() WHERE id = ?', [user.id]);
@@ -63,13 +50,7 @@ app.post('/api/auth/login', async (req, res) => {
       const [result] = await db.query('INSERT INTO users (openid, last_login_time) VALUES (?, NOW())', [openid]);
       user = { id: result.insertId, openid };
     }
-
-    const token = jwt.sign(
-      { userId: user.id, openid: user.openid },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
+    const token = jwt.sign({ userId: user.id, openid: user.openid }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({ code: 200, message: '登录成功', data: { token } });
   } catch (error) {
     console.error('登录API出错:', error.message);
@@ -79,17 +60,10 @@ app.post('/api/auth/login', async (req, res) => {
 
 
 // --- 家族管理API (需要认证) ---
-
-// 获取当前用户的所有家族列表
 app.get('/api/user/families', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const sql = `
-      SELECT f.id, f.name, f.description, r.role
-      FROM families f
-      JOIN family_user_relations r ON f.id = r.family_id
-      WHERE r.user_id = ?
-    `;
+    const sql = `SELECT f.id, f.name, f.description, r.role FROM families f JOIN family_user_relations r ON f.id = r.family_id WHERE r.user_id = ?`;
     const [families] = await db.query(sql, [userId]);
     res.json({ code: 200, message: '成功', data: families });
   } catch (error) {
@@ -97,68 +71,37 @@ app.get('/api/user/families', authenticateToken, async (req, res) => {
     res.status(500).json({ message: '服务器内部错误' });
   }
 });
-
-// 创建一个新家族
 app.post('/api/families', authenticateToken, async (req, res) => {
   const { name, description } = req.body;
   const creatorId = req.user.userId;
-
-  if (!name) {
-    return res.status(400).json({ message: '家族名称不能为空' });
-  }
-
+  if (!name) return res.status(400).json({ message: '家族名称不能为空' });
   const connection = await db.getConnection();
   try {
-    await connection.beginTransaction(); // 开始事务
-
-    // 1. 在 families 表中创建家族
-    const [familyResult] = await connection.query(
-      'INSERT INTO families (name, description, creator_id) VALUES (?, ?, ?)',
-      [name, description, creatorId]
-    );
+    await connection.beginTransaction();
+    const [familyResult] = await connection.query('INSERT INTO families (name, description, creator_id) VALUES (?, ?, ?)', [name, description, creatorId]);
     const familyId = familyResult.insertId;
-
-    // 2. 在 relations 表中将创建者设为管理员
-    await connection.query(
-      'INSERT INTO family_user_relations (family_id, user_id, role) VALUES (?, ?, ?)',
-      [familyId, creatorId, 'admin']
-    );
-
-    await connection.commit(); // 提交事务
+    await connection.query('INSERT INTO family_user_relations (family_id, user_id, role) VALUES (?, ?, ?)', [familyId, creatorId, 'admin']);
+    await connection.commit();
     res.status(201).json({ code: 201, message: '家族创建成功', data: { id: familyId, name, description } });
-
   } catch (error) {
-    await connection.rollback(); // 出错则回滚
+    await connection.rollback();
     console.error('创建家族失败:', error);
     res.status(500).json({ message: '服务器内部错误' });
   } finally {
-    connection.release(); // 释放连接
+    connection.release();
   }
 });
 
 
-// --- 族谱数据API (需要认证) ---
-
-// 获取指定家族的族谱树
-// 注意：路由从 /api/family/1/tree 变为了 /api/families/:familyId/tree
+// --- 族谱数据API ---
 app.get('/api/families/:familyId/tree', authenticateToken, async (req, res) => {
   const { familyId } = req.params;
   const userId = req.user.userId;
-
   try {
-    // 权限检查：确认当前用户是否属于该家族
-    const [relations] = await db.query(
-      'SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ?',
-      [familyId, userId]
-    );
-    if (relations.length === 0) {
-      return res.status(403).json({ message: '无权访问该家族' });
-    }
-
-    // 权限通过，获取数据
+    const [relations] = await db.query('SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, userId]);
+    if (relations.length === 0) return res.status(403).json({ message: '无权访问该家族' });
     const [rows] = await db.query('SELECT * FROM members WHERE family_id = ?', [familyId]);
-    const tree = buildTree(rows); // 使用之前的buildTree函数
-
+    const tree = buildTree(rows);
     if (tree.length > 0) {
       res.json({ code: 200, message: '成功', data: tree[0] });
     } else {
@@ -170,8 +113,47 @@ app.get('/api/families/:familyId/tree', authenticateToken, async (req, res) => {
   }
 });
 
+// 创建成员API
+app.post('/api/families/:familyId/members', authenticateToken, async (req, res) => {
+  const { familyId } = req.params;
+  const userId = req.user.userId;
+  const { name, gender, birth_date } = req.body;
 
-// buildTree 辅助函数 (保持不变)
+  if (!name || !gender) {
+    return res.status(400).json({ message: '姓名和性别不能为空' });
+  }
+
+  try {
+    const [relations] = await db.query(
+      'SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?',
+      [familyId, userId]
+    );
+    if (relations.length === 0 || !['admin', 'editor'].includes(relations[0].role)) {
+      return res.status(403).json({ message: '您没有权限在此家族中添加成员' });
+    }
+    
+    const [roots] = await db.query('SELECT id FROM members WHERE family_id = ? AND father_id IS NULL', [familyId]);
+    if(roots.length > 0) {
+      return res.status(400).json({ message: '该家族已存在始祖' });
+    }
+
+    const sql = 'INSERT INTO members (family_id, name, gender, birth_date) VALUES (?, ?, ?, ?)';
+    const [result] = await db.query(sql, [familyId, name, gender, birth_date || null]);
+
+    res.status(201).json({
+      code: 201,
+      message: '成员创建成功',
+      data: { id: result.insertId }
+    });
+
+  } catch (error) {
+    console.error(`在家族(id=${familyId})中创建成员失败:`, error);
+    res.status(500).json({ message: '服务器内部错误' });
+  }
+});
+
+
+// buildTree 辅助函数
 function buildTree(list) {
   if (!list || list.length === 0) return [];
   const map = {};
@@ -193,8 +175,6 @@ function buildTree(list) {
   return roots.filter(r => !(r.spouse_id && rootIds.has(r.spouse_id) && r.id > r.spouse_id));
 }
 
-
 app.listen(PORT, () => {
   console.log(`清风族谱后端服务已启动，正在监听 http://localhost:${PORT}`);
 });
-
