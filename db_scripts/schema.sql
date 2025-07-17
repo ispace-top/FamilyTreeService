@@ -1,6 +1,6 @@
 -- db_scripts/schema.sql
 
--- 切换到我们的数据库，确保这里是 family_tree
+-- 切换到我们的数据库
 USE `family_tree`;
 
 -- 修正删除顺序：先删除子表，再删除父表
@@ -54,8 +54,8 @@ CREATE TABLE `members` (
   `name` VARCHAR(50) NOT NULL COMMENT '姓名',
   `gender` ENUM('male', 'female') NOT NULL COMMENT '性别',
   `status` ENUM('alive', 'deceased') NOT NULL DEFAULT 'alive' COMMENT '状态',
-  `birth_date` DATE NULL COMMENT '出生日期',
-  `death_date` DATE NULL COMMENT '去世日期',
+  `birth_date` VARCHAR(50) NULL COMMENT '出生日期 (使用字符串以支持模糊日期)',
+  `death_date` VARCHAR(50) NULL COMMENT '去世日期 (使用字符串以支持模糊日期)',
   `father_id` INT NULL COMMENT '父亲ID',
   `mother_id` INT NULL COMMENT '母亲ID',
   `spouse_id` INT NULL COMMENT '配偶ID',
@@ -68,20 +68,3 @@ CREATE TABLE `members` (
   PRIMARY KEY (`id`)
 ) COMMENT '家族成员表';
 
-
--- 插入初始测试数据 (注：由于现在表是空的，这些数据无法直接插入，因为没有对应的 family 和 user)
--- 我们将在后续步骤中通过API来创建这些数据
-/*
-INSERT INTO `members`
-(`id`, `family_id`, `name`, `gender`, `status`, `birth_date`, `father_id`, `spouse_id`)
-VALUES
-(1, 1, '陈始祖', 'male', 'deceased', '1900-01-01', NULL, 2),
-(2, 1, '始祖母', 'female', 'deceased', '1905-01-01', NULL, 1),
-(3, 1, '陈大勇', 'male', 'alive', '1965-03-12', 1, 4),
-(4, 1, '李淑芬', 'female', 'alive', '1968-05-20', NULL, 3),
-(5, 1, '陈大美', 'female', 'alive', '1970-08-15', 1, 6),
-(6, 1, '张伟', 'male', 'alive', '1969-10-10', NULL, 5),
-(7, 1, '陈小明', 'male', 'alive', '1990-06-01', 3, NULL),
-(8, 1, '陈小红', 'female', 'alive', '1992-09-10', 3, NULL),
-(9, 1, '张小宝', 'male', 'alive', '1995-11-11', 6, NULL);
-*/

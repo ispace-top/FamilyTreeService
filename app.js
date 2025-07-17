@@ -12,26 +12,19 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-// --- 认证中间件 (Authentication Middleware) ---
+// --- 认证中间件 (保持不变) ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // 格式: "Bearer TOKEN"
-
-  if (token == null) {
-    return res.sendStatus(401); // Unauthorized: 请求没有token
-  }
-
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token == null) return res.sendStatus(401);
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.sendStatus(403); // Forbidden: token无效或已过期
-    }
+    if (err) return res.sendStatus(403);
     req.user = user;
-    next(); // 通过验证，放行到下一个路由
+    next();
   });
 };
 
-
-// --- 登录API (无需认证) ---
+// --- 登录API (保持不变) ---
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { code } = req.body;
@@ -58,8 +51,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-
-// --- 家族管理API (需要认证) ---
+// --- 家族管理API (保持不变) ---
 app.get('/api/user/families', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -92,8 +84,7 @@ app.post('/api/families', authenticateToken, async (req, res) => {
   }
 });
 
-
-// --- 族谱数据API ---
+// --- 族谱数据API (保持不变) ---
 app.get('/api/families/:familyId/tree', authenticateToken, async (req, res) => {
   const { familyId } = req.params;
   const userId = req.user.userId;
@@ -113,17 +104,21 @@ app.get('/api/families/:familyId/tree', authenticateToken, async (req, res) => {
   }
 });
 
-// 创建成员API
+// --- 成员管理API ---
+
+// 创建成员API (已改造)
 app.post('/api/families/:familyId/members', authenticateToken, async (req, res) => {
   const { familyId } = req.params;
   const userId = req.user.userId;
-  const { name, gender, birth_date } = req.body;
+  // 接收新成员信息，包括可选的父/母ID
+  const { name, gender, birth_date, father_id, mother_id } = req.body;
 
   if (!name || !gender) {
     return res.status(400).json({ message: '姓名和性别不能为空' });
   }
 
   try {
+    // 1. 权限检查：确认当前用户是该家族的管理员或编辑者
     const [relations] = await db.query(
       'SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?',
       [familyId, userId]
@@ -132,13 +127,17 @@ app.post('/api/families/:familyId/members', authenticateToken, async (req, res) 
       return res.status(403).json({ message: '您没有权限在此家族中添加成员' });
     }
     
-    const [roots] = await db.query('SELECT id FROM members WHERE family_id = ? AND father_id IS NULL', [familyId]);
-    if(roots.length > 0) {
-      return res.status(400).json({ message: '该家族已存在始祖' });
+    // 2. 如果是添加始祖 (没有父/母ID)，则检查是否已存在
+    if (!father_id && !mother_id) {
+        const [roots] = await db.query('SELECT id FROM members WHERE family_id = ? AND father_id IS NULL AND mother_id IS NULL', [familyId]);
+        if(roots.length > 0) {
+          return res.status(400).json({ message: '该家族已存在始祖，无法重复添加' });
+        }
     }
 
-    const sql = 'INSERT INTO members (family_id, name, gender, birth_date) VALUES (?, ?, ?, ?)';
-    const [result] = await db.query(sql, [familyId, name, gender, birth_date || null]);
+    // 3. 插入数据到 members 表
+    const sql = 'INSERT INTO members (family_id, name, gender, birth_date, father_id, mother_id) VALUES (?, ?, ?, ?, ?, ?)';
+    const [result] = await db.query(sql, [familyId, name, gender, birth_date || null, father_id || null, mother_id || null]);
 
     res.status(201).json({
       code: 201,
@@ -152,8 +151,66 @@ app.post('/api/families/:familyId/members', authenticateToken, async (req, res) 
   }
 });
 
+// 获取单个成员详情API (保持不变)
+app.get('/api/members/:memberId', authenticateToken, async (req, res) => {
+    const { memberId } = req.params;
+    const userId = req.user.userId;
+    try {
+        const [rows] = await db.query('SELECT * FROM members WHERE id = ?', [memberId]);
+        if (rows.length === 0) {
+            return res.status(404).json({ message: '未找到该成员' });
+        }
+        const member = rows[0];
+        const [relations] = await db.query('SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ?', [member.family_id, userId]);
+        if (relations.length === 0) {
+            return res.status(403).json({ message: '无权查看该成员信息' });
+        }
+        res.json({ code: 200, message: '成功', data: member });
+    } catch (error) {
+        console.error(`获取成员(id=${memberId})详情失败:`, error);
+        res.status(500).json({ message: '服务器内部错误' });
+    }
+});
 
-// buildTree 辅助函数
+// 更新单个成员信息API (保持不变)
+app.put('/api/members/:memberId', authenticateToken, async (req, res) => {
+    const { memberId } = req.params;
+    const userId = req.user.userId;
+    const memberData = req.body;
+    try {
+        const [members] = await db.query('SELECT family_id FROM members WHERE id = ?', [memberId]);
+        if (members.length === 0) {
+            return res.status(404).json({ message: '未找到要更新的成员' });
+        }
+        const familyId = members[0].family_id;
+        const [relations] = await db.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, userId]);
+        if (relations.length === 0 || !['admin', 'editor'].includes(relations[0].role)) {
+            return res.status(403).json({ message: '您没有权限修改该成员信息' });
+        }
+        const fields = ['name', 'gender', 'status', 'birth_date', 'death_date', 'phone', 'wechat_id', 'original_address', 'current_address', 'occupation'];
+        const updateFields = [];
+        const updateValues = [];
+        fields.forEach(field => {
+            if (memberData[field] !== undefined) {
+                updateFields.push(`${field} = ?`);
+                updateValues.push(memberData[field]);
+            }
+        });
+        if (updateFields.length === 0) {
+            return res.status(400).json({ message: '没有要更新的内容' });
+        }
+        updateValues.push(memberId);
+        const sql = `UPDATE members SET ${updateFields.join(', ')} WHERE id = ?`;
+        await db.query(sql, updateValues);
+        res.json({ code: 200, message: '更新成功' });
+    } catch (error) {
+        console.error(`更新成员(id=${memberId})信息失败:`, error);
+        res.status(500).json({ message: '服务器内部错误' });
+    }
+});
+
+
+// buildTree 辅助函数 (保持不变)
 function buildTree(list) {
   if (!list || list.length === 0) return [];
   const map = {};
