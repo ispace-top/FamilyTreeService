@@ -4,6 +4,7 @@
 USE `family_tree`;
 
 -- 修正删除顺序：先删除子表，再删除父表
+DROP TABLE IF EXISTS `invitations`;
 DROP TABLE IF EXISTS `family_user_relations`;
 DROP TABLE IF EXISTS `families`;
 DROP TABLE IF EXISTS `members`;
@@ -42,8 +43,8 @@ CREATE TABLE `family_user_relations` (
   `role` ENUM('admin', 'editor', 'member') NOT NULL DEFAULT 'member' COMMENT '用户角色',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_family_user` (`family_id`, `user_id`),
-  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`),
-  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`)
+  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) COMMENT '家族与用户的关系表';
 
 
@@ -65,6 +66,22 @@ CREATE TABLE `members` (
   `current_address` VARCHAR(255) NULL,
   `occupation` VARCHAR(100) NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE
 ) COMMENT '家族成员表';
+
+
+-- 新增：创建 invitations 表
+CREATE TABLE `invitations` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `family_id` INT NOT NULL,
+  `inviter_id` INT NOT NULL,
+  `token` VARCHAR(255) NOT NULL UNIQUE COMMENT '唯一的邀请令牌',
+  `status` ENUM('active', 'used', 'expired') NOT NULL DEFAULT 'active',
+  `expires_at` TIMESTAMP NOT NULL COMMENT '过期时间',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`inviter_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) COMMENT '邀请表';
 
