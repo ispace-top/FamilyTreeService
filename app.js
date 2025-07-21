@@ -360,6 +360,6 @@ function buildTree(list) {
   return roots.filter(r => !(r.spouse_id && rootIds.has(r.spouse_id) && r.id > r.spouse_id));
 }
 
-app.listen(PORT, () => {
+app.listen(PORT,'0.0.0.0' ,() => {
   console.log(`清风族谱后端服务已启动，正在监听 http://localhost:${PORT}`);
 });

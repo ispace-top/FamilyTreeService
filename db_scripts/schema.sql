@@ -3,15 +3,15 @@
 -- 切换到我们的数据库
 USE `family_tree`;
 
--- 修正删除顺序：先删除子表，再删除父表
+-- 最终修正删除顺序：先删除所有子表，再删除父表
 DROP TABLE IF EXISTS `invitations`;
 DROP TABLE IF EXISTS `family_user_relations`;
-DROP TABLE IF EXISTS `families`;
 DROP TABLE IF EXISTS `members`;
+DROP TABLE IF EXISTS `families`;
 DROP TABLE IF EXISTS `users`;
 
 
--- 创建 users 表 (父表)
+-- 创建 users 表 (最顶层父表)
 CREATE TABLE `users` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `openid` VARCHAR(100) NOT NULL UNIQUE COMMENT '微信用户唯一标识',
@@ -23,7 +23,7 @@ CREATE TABLE `users` (
 ) COMMENT '用户表';
 
 
--- 创建 families 表 (子表, 依赖 users)
+-- 创建 families 表 (依赖 users)
 CREATE TABLE `families` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(100) NOT NULL COMMENT '家族名称',
@@ -31,11 +31,11 @@ CREATE TABLE `families` (
   `description` TEXT NULL COMMENT '家族简介',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  FOREIGN KEY (`creator_id`) REFERENCES `users`(`id`)
+  FOREIGN KEY (`creator_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) COMMENT '家族表';
 
 
--- 创建 family_user_relations 表 (子表, 依赖 users 和 families)
+-- 创建 family_user_relations 表 (依赖 users 和 families)
 CREATE TABLE `family_user_relations` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `family_id` INT NOT NULL,
@@ -48,7 +48,7 @@ CREATE TABLE `family_user_relations` (
 ) COMMENT '家族与用户的关系表';
 
 
--- 创建 members 表
+-- 创建 members 表 (依赖 families)
 CREATE TABLE `members` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `family_id` INT NOT NULL COMMENT '所属家族ID',
@@ -71,7 +71,7 @@ CREATE TABLE `members` (
 ) COMMENT '家族成员表';
 
 
--- 新增：创建 invitations 表
+-- 创建 invitations 表 (依赖 users 和 families)
 CREATE TABLE `invitations` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `family_id` INT NOT NULL,
