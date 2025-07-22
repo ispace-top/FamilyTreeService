@@ -1,4 +1,4 @@
-// server.js
+// app.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -57,7 +57,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/user/families', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const sql = `SELECT f.id, f.name, f.description, r.role FROM families f JOIN family_user_relations r ON f.id = r.family_id WHERE r.user_id = ?`;
+    const sql = `SELECT f.id, f.name, f.description, r.role, r.member_id FROM families f JOIN family_user_relations r ON f.id = r.family_id WHERE r.user_id = ?`;
     const [families] = await db.query(sql, [userId]);
     res.json({ code: 200, message: '成功', data: families });
   } catch (error) {
@@ -72,6 +72,9 @@ app.post('/api/families', authenticateToken, async (req, res) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
+    const maxFamilies = parseInt(process.env.MAX_FAMILIES_PER_USER, 10) || 2;
+    const [[{ count }]] = await connection.query('SELECT COUNT(*) as count FROM family_user_relations WHERE user_id = ?', [creatorId]);
+    if (count >= maxFamilies) throw new Error(`您最多只能创建或加入${maxFamilies}个家族`);
     const [familyResult] = await connection.query('INSERT INTO families (name, description, creator_id) VALUES (?, ?, ?)', [name, description, creatorId]);
     const familyId = familyResult.insertId;
     await connection.query('INSERT INTO family_user_relations (family_id, user_id, role) VALUES (?, ?, ?)', [familyId, creatorId, 'admin']);
@@ -80,10 +83,52 @@ app.post('/api/families', authenticateToken, async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error('创建家族失败:', error);
-    res.status(500).json({ message: '服务器内部错误' });
+    res.status(403).json({ message: error.message || '服务器内部错误' });
   } finally {
     connection.release();
   }
+});
+app.put('/api/families/:familyId', authenticateToken, async (req, res) => {
+    const { familyId } = req.params;
+    const { name, description, introduction } = req.body;
+    const requesterId = req.user.userId;
+    if (!name) return res.status(400).json({ message: '家族名称不能为空' });
+    try {
+        const [relations] = await db.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, requesterId]);
+        if (relations.length === 0 || relations[0].role !== 'admin') return res.status(403).json({ message: '只有管理员才能修改家族信息' });
+        await db.query('UPDATE families SET name = ?, description = ?, introduction = ? WHERE id = ?', [name, description, introduction, familyId]);
+        res.json({ code: 200, message: '家族信息更新成功' });
+    } catch (error) {
+        console.error('更新家族信息失败:', error);
+        res.status(500).json({ message: '服务器内部错误' });
+    }
+});
+app.delete('/api/families/:familyId', authenticateToken, async (req, res) => {
+    const { familyId } = req.params;
+    const requesterId = req.user.userId;
+    try {
+        const [relations] = await db.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, requesterId]);
+        if (relations.length === 0 || relations[0].role !== 'admin') return res.status(403).json({ message: '只有管理员才能删除家族' });
+        await db.query('DELETE FROM families WHERE id = ?', [familyId]);
+        res.json({ code: 200, message: '家族已成功删除' });
+    } catch (error) {
+        console.error('删除家族失败:', error);
+        res.status(500).json({ message: '服务器内部错误' });
+    }
+});
+app.get('/api/families/:familyId/details', authenticateToken, async (req, res) => {
+    const { familyId } = req.params;
+    const requesterId = req.user.userId;
+    try {
+        const [relations] = await db.query('SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, requesterId]);
+        if (relations.length === 0) return res.status(403).json({ message: '您不属于该家族，无法查看' });
+        const [families] = await db.query('SELECT id, name, description, introduction FROM families WHERE id = ?', [familyId]);
+        if (families.length === 0) return res.status(404).json({ message: '未找到该家族' });
+        res.json({ code: 200, message: '成功', data: families[0] });
+    } catch (error) {
+        console.error('获取家族详情失败:', error);
+        res.status(500).json({ message: '服务器内部错误' });
+    }
 });
 
 // --- 族谱树API ---
@@ -127,12 +172,20 @@ app.get('/api/members/:memberId', authenticateToken, async (req, res) => {
     const { memberId } = req.params;
     const userId = req.user.userId;
     try {
-        const [rows] = await db.query('SELECT * FROM members WHERE id = ?', [memberId]);
+        const sql = `
+            SELECT m.*, r.user_id as linked_user_id
+            FROM members m
+            LEFT JOIN family_user_relations r ON m.id = r.member_id AND m.family_id = r.family_id
+            WHERE m.id = ?
+        `;
+        const [rows] = await db.query(sql, [memberId]);
         if (rows.length === 0) return res.status(404).json({ message: '未找到该成员' });
         const member = rows[0];
+        const isLinked = !!member.linked_user_id;
+        delete member.linked_user_id;
         const [relations] = await db.query('SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ?', [member.family_id, userId]);
         if (relations.length === 0) return res.status(403).json({ message: '无权查看该成员信息' });
-        res.json({ code: 200, message: '成功', data: member });
+        res.json({ code: 200, message: '成功', data: { ...member, is_linked: isLinked } });
     } catch (error) {
         console.error(`获取成员(id=${memberId})详情失败:`, error);
         res.status(500).json({ message: '服务器内部错误' });
@@ -140,14 +193,15 @@ app.get('/api/members/:memberId', authenticateToken, async (req, res) => {
 });
 app.put('/api/members/:memberId', authenticateToken, async (req, res) => {
     const { memberId } = req.params;
-    const userId = req.user.userId;
+    const requesterId = req.user.userId;
     const memberData = req.body;
     try {
         const [members] = await db.query('SELECT family_id FROM members WHERE id = ?', [memberId]);
         if (members.length === 0) return res.status(404).json({ message: '未找到要更新的成员' });
         const familyId = members[0].family_id;
-        const [relations] = await db.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, userId]);
-        if (relations.length === 0 || !['admin', 'editor'].includes(relations[0].role)) return res.status(403).json({ message: '您没有权限修改该成员信息' });
+        const [relations] = await db.query('SELECT role, member_id FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, requesterId]);
+        const canEdit = (relations.length > 0 && ['admin', 'editor'].includes(relations[0].role)) || (relations.length > 0 && relations[0].member_id == memberId);
+        if (!canEdit) return res.status(403).json({ message: '您没有权限修改该成员信息' });
         const fields = ['name', 'gender', 'status', 'birth_date', 'death_date', 'phone', 'wechat_id', 'original_address', 'current_address', 'occupation'];
         const updateFields = [];
         const updateValues = [];
@@ -308,8 +362,7 @@ app.post('/api/invitations/:token/join', async (req, res) => {
         await connection.beginTransaction();
         const [invitations] = await connection.query("SELECT * FROM invitations WHERE token = ? AND status = 'active' AND expires_at > NOW() FOR UPDATE", [token]);
         if (invitations.length === 0) throw new Error('邀请链接无效或已过期');
-        const invitation = invitations[0];
-        const { family_id } = invitation;
+        const { family_id } = invitations[0];
         const wechatApiUrl = `https://api.weixin.qq.com/sns/jscode2session`;
         const params = { appid: process.env.WECHAT_APPID, secret: process.env.WECHAT_APPSECRET, js_code: code, grant_type: 'authorization_code' };
         const { data: wechatData } = await axios.get(wechatApiUrl, { params });
@@ -322,17 +375,21 @@ app.post('/api/invitations/:token/join', async (req, res) => {
             const [result] = await connection.query('INSERT INTO users (openid) VALUES (?)', [wechatData.openid]);
             userId = result.insertId;
         }
+        const maxFamilies = parseInt(process.env.MAX_FAMILIES_PER_USER, 10) || 2;
+        const [[{ count }]] = await connection.query('SELECT COUNT(*) as count FROM family_user_relations WHERE user_id = ?', [userId]);
+        if (count >= maxFamilies) throw new Error(`您最多只能创建或加入${maxFamilies}个家族`);
         const [relations] = await connection.query('SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ?', [family_id, userId]);
         if (relations.length > 0) throw new Error('您已经是该家族的成员了');
-        await connection.query('INSERT INTO members (family_id, name, gender, birth_date) VALUES (?, ?, ?, ?)', [family_id, name, gender, birth_date || null]);
-        await connection.query('INSERT INTO family_user_relations (family_id, user_id, role) VALUES (?, ?, ?)', [family_id, userId, 'member']);
-        await connection.query("UPDATE invitations SET status = 'used' WHERE id = ?", [invitation.id]);
+        const [memberResult] = await connection.query('INSERT INTO members (family_id, name, gender, birth_date) VALUES (?, ?, ?, ?)', [family_id, name, gender, birth_date || null]);
+        const newMemberId = memberResult.insertId;
+        await connection.query('INSERT INTO family_user_relations (family_id, user_id, role, member_id) VALUES (?, ?, ?, ?)', [family_id, userId, 'member', newMemberId]);
+        await connection.query("UPDATE invitations SET status = 'used' WHERE id = ?", [invitations[0].id]);
         await connection.commit();
         res.status(201).json({ code: 201, message: '成功加入家族' });
     } catch (error) {
         await connection.rollback();
         console.error('加入家族失败:', error);
-        res.status(500).json({ message: error.message || '服务器内部错误' });
+        res.status(403).json({ message: error.message || '服务器内部错误' });
     } finally {
         connection.release();
     }
@@ -380,6 +437,32 @@ app.put('/api/families/:familyId/users/:userId/role', authenticateToken, async (
         await connection.rollback();
         console.error('更新角色失败:', error);
         res.status(500).json({ message: error.message || '服务器内部错误' });
+    } finally {
+        connection.release();
+    }
+});
+
+// --- 身份认领API ---
+app.put('/api/families/:familyId/claim-member', authenticateToken, async (req, res) => {
+    const { familyId } = req.params;
+    const { memberId } = req.body;
+    const userId = req.user.userId;
+    if (!memberId) return res.status(400).json({ message: '缺少成员ID' });
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+        const [userRelations] = await connection.query('SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ? FOR UPDATE', [familyId, userId]);
+        if (userRelations.length === 0) throw new Error('您不属于该家族');
+        if (userRelations[0].member_id) throw new Error('您已在本家族绑定了身份，无法重复绑定');
+        const [memberRelations] = await connection.query('SELECT * FROM family_user_relations WHERE family_id = ? AND member_id = ? FOR UPDATE', [familyId, memberId]);
+        if (memberRelations.length > 0) throw new Error('该身份已被其他用户绑定');
+        await connection.query('UPDATE family_user_relations SET member_id = ? WHERE family_id = ? AND user_id = ?', [memberId, familyId, userId]);
+        await connection.commit();
+        res.json({ code: 200, message: '身份绑定成功' });
+    } catch (error) {
+        await connection.rollback();
+        console.error('身份绑定失败:', error);
+        res.status(403).json({ message: error.message || '服务器内部错误' });
     } finally {
         connection.release();
     }

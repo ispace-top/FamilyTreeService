@@ -29,26 +29,14 @@ CREATE TABLE `families` (
   `name` VARCHAR(100) NOT NULL COMMENT '家族名称',
   `creator_id` INT NOT NULL COMMENT '创建者用户ID',
   `description` TEXT NULL COMMENT '家族简介',
+  `introduction` TEXT NULL COMMENT '家族介绍/公告',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   FOREIGN KEY (`creator_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) COMMENT '家族表';
 
 
--- 创建 family_user_relations 表 (依赖 users 和 families)
-CREATE TABLE `family_user_relations` (
-  `id` INT NOT NULL AUTO_INCREMENT,
-  `family_id` INT NOT NULL,
-  `user_id` INT NOT NULL,
-  `role` ENUM('admin', 'editor', 'member') NOT NULL DEFAULT 'member' COMMENT '用户角色',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_family_user` (`family_id`, `user_id`),
-  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
-) COMMENT '家族与用户的关系表';
-
-
--- 创建 members 表 (依赖 families)
+-- 创建 members 表
 CREATE TABLE `members` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `family_id` INT NOT NULL COMMENT '所属家族ID',
@@ -71,6 +59,21 @@ CREATE TABLE `members` (
 ) COMMENT '家族成员表';
 
 
+-- 创建 family_user_relations 表 (依赖 users 和 families)
+CREATE TABLE `family_user_relations` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `family_id` INT NOT NULL,
+  `user_id` INT NOT NULL,
+  `role` ENUM('admin', 'editor', 'member') NOT NULL DEFAULT 'member' COMMENT '用户角色',
+  `member_id` INT NULL COMMENT '关联的成员ID',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_family_user` (`family_id`, `user_id`),
+  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`member_id`) REFERENCES `members`(`id`) ON DELETE SET NULL
+) COMMENT '家族与用户的关系表';
+
+
 -- 创建 invitations 表 (依赖 users 和 families)
 CREATE TABLE `invitations` (
   `id` INT NOT NULL AUTO_INCREMENT,
@@ -84,4 +87,3 @@ CREATE TABLE `invitations` (
   FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`inviter_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) COMMENT '邀请表';
-
