@@ -5,15 +5,24 @@ const cors = require('cors');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const multer = require('multer');
+const path = require('path');
 const db = require('./db');
+const { uploadImage } = require('./upload-service'); // 引入新的上传服务
 
 const app = express();
 const PORT = 3000;
 
+// 配置 multer
+const upload = multer({ storage: multer.memoryStorage() });
+
 app.use(cors());
 app.use(express.json());
 
-// --- 认证中间件 (Authentication Middleware) ---
+// 配置静态文件服务，让 'uploads' 目录下的文件可以通过URL访问
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// --- 认证中间件 ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -57,7 +66,12 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/user/families', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const sql = `SELECT f.id, f.name, f.description, r.role, r.member_id FROM families f JOIN family_user_relations r ON f.id = r.family_id WHERE r.user_id = ?`;
+    const sql = `
+      SELECT f.id, f.name, f.description, f.introduction, f.avatar, f.banner, r.role, r.member_id 
+      FROM families f 
+      JOIN family_user_relations r ON f.id = r.family_id 
+      WHERE r.user_id = ?
+    `;
     const [families] = await db.query(sql, [userId]);
     res.json({ code: 200, message: '成功', data: families });
   } catch (error) {
@@ -90,13 +104,13 @@ app.post('/api/families', authenticateToken, async (req, res) => {
 });
 app.put('/api/families/:familyId', authenticateToken, async (req, res) => {
     const { familyId } = req.params;
-    const { name, description, introduction } = req.body;
+    const { name, description, introduction, avatar, banner } = req.body;
     const requesterId = req.user.userId;
     if (!name) return res.status(400).json({ message: '家族名称不能为空' });
     try {
         const [relations] = await db.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, requesterId]);
         if (relations.length === 0 || relations[0].role !== 'admin') return res.status(403).json({ message: '只有管理员才能修改家族信息' });
-        await db.query('UPDATE families SET name = ?, description = ?, introduction = ? WHERE id = ?', [name, description, introduction, familyId]);
+        await db.query('UPDATE families SET name = ?, description = ?, introduction = ?, avatar = ?, banner = ? WHERE id = ?', [name, description, introduction, avatar, banner, familyId]);
         res.json({ code: 200, message: '家族信息更新成功' });
     } catch (error) {
         console.error('更新家族信息失败:', error);
@@ -219,6 +233,25 @@ app.put('/api/members/:memberId', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error(`更新成员(id=${memberId})信息失败:`, error);
         res.status(500).json({ message: '服务器内部错误' });
+    }
+});
+
+// --- 图片上传API ---
+app.post('/api/upload', authenticateToken, upload.single('file'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: '没有上传文件' });
+    }
+    try {
+        const fileUrl = await uploadImage(req.file);
+        res.json({
+            code: 200,
+            message: '上传成功',
+            data: {
+                url: fileUrl
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ message: '上传失败，服务器内部错误' });
     }
 });
 

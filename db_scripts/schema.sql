@@ -30,6 +30,8 @@ CREATE TABLE `families` (
   `creator_id` INT NOT NULL COMMENT '创建者用户ID',
   `description` TEXT NULL COMMENT '家族简介',
   `introduction` TEXT NULL COMMENT '家族介绍/公告',
+  `avatar` VARCHAR(255) NULL COMMENT '家族头像URL',
+  `banner` VARCHAR(255) NULL COMMENT '家族背景图URL',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   FOREIGN KEY (`creator_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
@@ -54,8 +56,7 @@ CREATE TABLE `members` (
   `current_address` VARCHAR(255) NULL,
   `occupation` VARCHAR(100) NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE
+  PRIMARY KEY (`id`)
 ) COMMENT '家族成员表';
 
 
