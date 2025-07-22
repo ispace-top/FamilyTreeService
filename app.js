@@ -123,6 +123,7 @@ app.post('/api/families/:familyId/members', authenticateToken, async (req, res) 
     res.status(500).json({ message: '服务器内部错误' });
   }
 });
+
 app.get('/api/members/:memberId', authenticateToken, async (req, res) => {
     const { memberId } = req.params;
     const userId = req.user.userId;
@@ -281,6 +282,8 @@ app.post('/api/families/:familyId/invitations', authenticateToken, async (req, r
         res.status(500).json({ message: '服务器内部错误' });
     }
 });
+
+//邀请
 app.get('/api/invitations/:token', async (req, res) => {
     const { token } = req.params;
     try {
@@ -299,6 +302,8 @@ app.get('/api/invitations/:token', async (req, res) => {
         res.status(500).json({ message: '服务器内部错误' });
     }
 });
+
+//加入家族
 app.post('/api/invitations/:token/join', async (req, res) => {
     const { token } = req.params;
     const { code, name, gender, birth_date } = req.body;
@@ -332,6 +337,82 @@ app.post('/api/invitations/:token/join', async (req, res) => {
     } catch (error) {
         await connection.rollback();
         console.error('加入家族失败:', error);
+        res.status(500).json({ message: error.message || '服务器内部错误' });
+    } finally {
+        connection.release();
+    }
+});
+
+// 获取家族的所有成员及其角色 (仅限管理员)
+app.get('/api/families/:familyId/roles', authenticateToken, async (req, res) => {
+    const { familyId } = req.params;
+    const requesterId = req.user.userId;
+    try {
+        // 权限检查：确认请求者是管理员
+        const [requesterRelations] = await db.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, requesterId]);
+        if (requesterRelations.length === 0 || requesterRelations[0].role !== 'admin') {
+            return res.status(403).json({ message: '只有管理员才能查看成员角色' });
+        }
+
+        // 查询所有成员的角色和基本信息
+        const sql = `
+            SELECT u.id as userId, u.nickname, u.avatar_url, r.role
+            FROM users u
+            JOIN family_user_relations r ON u.id = r.user_id
+            WHERE r.family_id = ?
+        `;
+        const [members] = await db.query(sql, [familyId]);
+        res.json({ code: 200, message: '成功', data: members });
+
+    } catch (error) {
+        console.error('获取成员角色列表失败:', error);
+        res.status(500).json({ message: '服务器内部错误' });
+    }
+});
+
+// 更新指定用户的角色 (仅限管理员)
+app.put('/api/families/:familyId/users/:userId/role', authenticateToken, async (req, res) => {
+    const { familyId, userId } = req.params;
+    const { role } = req.body;
+    const requesterId = req.user.userId;
+
+    if (!['admin', 'editor', 'member'].includes(role)) {
+        return res.status(400).json({ message: '无效的角色' });
+    }
+
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // 权限检查：确认请求者是管理员
+        const [requesterRelations] = await connection.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, requesterId]);
+        if (requesterRelations.length === 0 || requesterRelations[0].role !== 'admin') {
+            throw new Error('只有管理员才能修改角色');
+        }
+
+        // 安全检查：防止移除最后一位管理员
+        if (role !== 'admin') {
+            const [[{ count }]] = await connection.query('SELECT COUNT(*) as count FROM family_user_relations WHERE family_id = ? AND role = "admin"', [familyId]);
+            if (count <= 1) {
+                const [targetUser] = await connection.query('SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?', [familyId, userId]);
+                if (targetUser.length > 0 && targetUser[0].role === 'admin') {
+                    throw new Error('无法移除最后一位管理员');
+                }
+            }
+        }
+
+        // 更新角色
+        const [updateResult] = await connection.query('UPDATE family_user_relations SET role = ? WHERE family_id = ? AND user_id = ?', [role, familyId, userId]);
+        if (updateResult.affectedRows === 0) {
+            throw new Error('该用户不在此家族中');
+        }
+
+        await connection.commit();
+        res.json({ code: 200, message: '角色更新成功' });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('更新角色失败:', error);
         res.status(500).json({ message: error.message || '服务器内部错误' });
     } finally {
         connection.release();
