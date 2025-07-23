@@ -29,23 +29,23 @@ export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): 
   try {
     const { code, nickname, avatar } = req.body;
 
-if (!code) {
-  res.status(400).json({ message: 'code是必填项' });
-  return;
-}
+    if (!code) {
+      res.status(400).json({ message: 'code是必填项' });
+      return;
+    }
 
-// 调用微信API获取openid
-const appid = process.env.WECHAT_APPID;
-const secret = process.env.WECHAT_SECRET;
-const response = await fetch(`https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`);
-const data = await response.json() as Code2SessionResponse;
+    // 调用微信API获取openid
+    const appid = process.env.WECHAT_APPID;
+    const secret = process.env.WECHAT_SECRET;
+    const response = await fetch(`https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`);
+    const data = await response.json() as Code2SessionResponse;
 
-if (data.errcode) {
-  res.status(400).json({ message: `微信登录失败: ${data.errmsg}` });
-  return;
-}
+    if (data.errcode) {
+      res.status(400).json({ message: `微信登录失败: ${data.errmsg}` });
+      return;
+    }
 
-const openid = data.openid;
+    const openid = data.openid;
 
     let user = await authService.verifyUser(openid);
     if (!user) {
@@ -54,6 +54,7 @@ const openid = data.openid;
     const { token, refreshToken } = await authService.generateTokens(user);
 
     res.status(200).json({
+      code: 200,
       message: '登录成功',
       data: {
         user: {
@@ -64,7 +65,8 @@ const openid = data.openid;
         },
         token,
         refreshToken
-      }
+      },
+
     });
   } catch (error) {
     console.error('登录失败:', error);
@@ -84,7 +86,7 @@ export const register = async (req: Request<{}, {}, RegisterRequest>, res: Respo
 
     const newUser = await authService.createUser(openid, nickname, avatar);
 
-    res.status(201).json({
+    res.status(200).json({
       message: '注册成功',
       data: {
         id: newUser.id,

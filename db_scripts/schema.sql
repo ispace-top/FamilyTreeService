@@ -1,14 +1,15 @@
--- db_scripts/schema.sql
-
 -- 切换到我们的数据库
 USE `family_tree`;
 
 -- 最终修正删除顺序：先删除所有子表，再删除父表
 DROP TABLE IF EXISTS `invitations`;
+DROP TABLE IF EXISTS `family_members`;
 DROP TABLE IF EXISTS `family_user_relations`;
 DROP TABLE IF EXISTS `members`;
 DROP TABLE IF EXISTS `families`;
+DROP TABLE IF EXISTS `refresh_tokens`;
 DROP TABLE IF EXISTS `users`;
+DROP TABLE IF EXISTS `roles`;
 
 
 -- 创建 users 表 (最顶层父表)
@@ -29,6 +30,7 @@ CREATE TABLE `refresh_tokens` (
   `token` VARCHAR(255) NOT NULL UNIQUE,
   `expires_at` TIMESTAMP NOT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) COMMENT '存储用户的刷新令牌';
@@ -44,10 +46,25 @@ CREATE TABLE `families` (
   `avatar` VARCHAR(255) NULL COMMENT '家族头像URL',
   `banner` VARCHAR(255) NULL COMMENT '家族背景图URL',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   FOREIGN KEY (`creator_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) COMMENT '家族表';
 
+
+-- 创建 roles 表
+CREATE TABLE `roles` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(50) NOT NULL UNIQUE COMMENT '角色名称',
+  `description` TEXT NULL COMMENT '角色描述',
+  PRIMARY KEY (`id`)
+) COMMENT '角色表';
+
+-- 插入默认角色数据
+INSERT INTO `roles` (`name`, `description`) VALUES
+('admin', '管理员，拥有全部权限'),
+('editor', '编辑者，可添加和修改成员信息'),
+('member', '成员，只能查看信息');
 
 -- 创建 members 表
 CREATE TABLE `members` (
@@ -84,6 +101,19 @@ CREATE TABLE `family_user_relations` (
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`member_id`) REFERENCES `members`(`id`) ON DELETE SET NULL
 ) COMMENT '家族与用户的关系表';
+
+CREATE TABLE IF NOT EXISTS family_members (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `family_id` INT NOT NULL,
+  `user_id` INT NOT NULL,
+  `role_id` INT NOT NULL DEFAULT 3 COMMENT '默认为成员角色',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`),
+  UNIQUE KEY `unique_family_user` (`family_id`, `user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
 -- 创建 invitations 表 (依赖 users 和 families)

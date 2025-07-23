@@ -26,16 +26,28 @@ export interface MemberRelation {
 
 // 获取成员详情
 export const getMemberById = async (memberId: number, userId: number): Promise<Member | null> => {
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT m.* FROM members m
-     JOIN families f ON m.family_id = f.id
-     LEFT JOIN family_members fm ON f.id = fm.family_id
-     WHERE m.id = ? AND (f.creator_id = ? OR fm.user_id = ?)
-     LIMIT 1`,
-    [memberId, userId, userId]
+  // 先检查成员是否存在
+  const [memberRows] = await pool.execute<RowDataPacket[]>('SELECT * FROM members WHERE id = ?', [memberId]);
+  if (memberRows.length === 0) {
+    return null; // 成员不存在
+  }
+  
+  const member = memberRows[0] as Member;
+  
+  // 再检查权限
+  const [permissionRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT 1 FROM families f
+     WHERE f.id = ? AND (f.creator_id = ? OR EXISTS (
+       SELECT 1 FROM family_members fm WHERE fm.family_id = f.id AND fm.user_id = ?
+     ))`,
+    [member.family_id, userId, userId]
   );
-
-  return rows.length > 0 ? (rows[0] as Member) : null;
+  
+  if (permissionRows.length === 0) {
+    throw new Error('No permission'); // 无权限访问
+  }
+  
+  return member;
 };
 
 // 更新成员信息

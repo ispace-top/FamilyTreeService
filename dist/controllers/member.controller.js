@@ -14,7 +14,7 @@ export const getMemberById = async (req, res) => {
         }
         const member = await memberService.getMemberById(memberId, userId);
         if (!member) {
-            res.status(404).json({ message: '成员不存在或无权访问' });
+            res.status(404).json({ message: '成员不存在' });
             return;
         }
         res.status(200).json({
@@ -23,6 +23,10 @@ export const getMemberById = async (req, res) => {
         });
     }
     catch (error) {
+        if (error instanceof Error && error.message === 'No permission') {
+            res.status(403).json({ message: '无权限访问' });
+            return;
+        }
         console.error('获取成员详情失败:', error);
         res.status(500).json({ message: '获取成员详情失败，请稍后重试' });
     }

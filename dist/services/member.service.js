@@ -1,12 +1,21 @@
 import pool from '../config/database.js';
 // 获取成员详情
 export const getMemberById = async (memberId, userId) => {
-    const [rows] = await pool.execute(`SELECT m.* FROM members m
-     JOIN families f ON m.family_id = f.id
-     LEFT JOIN family_members fm ON f.id = fm.family_id
-     WHERE m.id = ? AND (f.creator_id = ? OR fm.user_id = ?)
-     LIMIT 1`, [memberId, userId, userId]);
-    return rows.length > 0 ? rows[0] : null;
+    // 先检查成员是否存在
+    const [memberRows] = await pool.execute('SELECT * FROM members WHERE id = ?', [memberId]);
+    if (memberRows.length === 0) {
+        return null; // 成员不存在
+    }
+    const member = memberRows[0];
+    // 再检查权限
+    const [permissionRows] = await pool.execute(`SELECT 1 FROM families f
+     WHERE f.id = ? AND (f.creator_id = ? OR EXISTS (
+       SELECT 1 FROM family_members fm WHERE fm.family_id = f.id AND fm.user_id = ?
+     ))`, [member.family_id, userId, userId]);
+    if (permissionRows.length === 0) {
+        throw new Error('No permission'); // 无权限访问
+    }
+    return member;
 };
 // 更新成员信息
 export const updateMember = async (memberId, userId, data) => {

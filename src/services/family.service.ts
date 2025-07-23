@@ -1,4 +1,16 @@
 import pool from '../config/database.js';
+
+// 获取用户的所有家族
+export const getUserFamilies = async (userId: number): Promise<Family[]> => {
+  const [rows] = await pool.execute(
+    `SELECT f.* FROM families f
+     JOIN family_members fm ON f.id = fm.family_id
+     WHERE fm.user_id = ?
+     GROUP BY f.id`,
+    [userId]
+  );
+  return rows as Family[];
+};
 import { RowDataPacket, OkPacket } from 'mysql2/promise';
 
 // 家族数据模型接口
@@ -23,6 +35,23 @@ export const createFamily = async (creatorId: number, name: string, description?
     );
 
     const familyId = result.insertId;
+    
+    // 获取管理员角色ID
+    const [roleRows] = await connection.execute<RowDataPacket[]>(
+      'SELECT id FROM roles WHERE name = ?',
+      ['admin']
+    );
+    if (roleRows.length === 0) {
+      throw new Error('Admin role not found');
+    }
+    const adminRoleId = roleRows[0].id;
+    
+    // 将创建者添加为家族成员（管理员）
+    await connection.execute<OkPacket>(
+      'INSERT INTO family_members (user_id, family_id, role_id, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
+      [creatorId, familyId, adminRoleId]
+    );
+    
     const [rows] = await connection.execute<RowDataPacket[]>('SELECT * FROM families WHERE id = ?', [familyId]);
 
     await connection.commit();
@@ -208,3 +237,27 @@ export interface Member {
   created_at: Date;
   updated_at: Date;
 }
+
+// 获取家族树结构
+export const getFamilyTree = async (familyId: number): Promise<any> => {
+  // TODO: 实现家族树数据查询逻辑
+  // 示例返回值
+  return {
+    id: familyId,
+    name: '示例家族',
+    members: [
+      {
+        id: 1,
+        name: '家族成员1',
+        role: 'admin',
+        children: [
+          {
+            id: 2,
+            name: '家族成员2',
+            role: 'member'
+          }
+        ]
+      }
+    ]
+  };
+};

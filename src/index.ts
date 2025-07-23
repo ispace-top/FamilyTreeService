@@ -5,6 +5,7 @@ import { testConnection } from './config/database.js';
 import authRoutes from './routes/auth.routes.js';
 import familyRoutes from './routes/family.routes.js';
 import memberRoutes from './routes/member.routes.js';
+import userRoutes from './routes/user.routes.js';
 
 // 加载环境变量
  dotenv.config();
@@ -24,6 +25,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/families', familyRoutes);
 app.use('/api/members', memberRoutes);
+app.use('/api/user', userRoutes);
 
 // 错误处理中间件
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {

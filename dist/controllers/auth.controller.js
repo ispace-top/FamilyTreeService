@@ -24,6 +24,7 @@ export const login = async (req, res) => {
         }
         const { token, refreshToken } = await authService.generateTokens(user);
         res.status(200).json({
+            code: 200,
             message: '登录成功',
             data: {
                 user: {
@@ -34,7 +35,7 @@ export const login = async (req, res) => {
                 },
                 token,
                 refreshToken
-            }
+            },
         });
     }
     catch (error) {
@@ -51,7 +52,7 @@ export const register = async (req, res) => {
             return;
         }
         const newUser = await authService.createUser(openid, nickname, avatar);
-        res.status(201).json({
+        res.status(200).json({
             message: '注册成功',
             data: {
                 id: newUser.id,
