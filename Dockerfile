@@ -22,7 +22,7 @@ RUN chmod +x /app/entrypoint.sh
 RUN yarn global add pm2
 
 # 8. 新增：指定容器的入口点
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 
 # 9. 暴露应用监听的端口 (容器内部的端口)
 EXPOSE 3000

@@ -5,7 +5,7 @@ module.exports = {
   apps: [
     {
       name: 'FamilyTreeServer', // 应用名称
-      script: 'app.js',         // 启动文件
+      script: 'dist/index.js',         // 启动文件 (TypeScript构建输出)
       watch: '.',               // 监视文件变化，可选
       ignore_watch: ["node_modules"], // 忽略监视的文件夹
       env: {
