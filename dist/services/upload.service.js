@@ -3,6 +3,7 @@ import COS from 'cos-nodejs-sdk-v5';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import util from 'util';
 // 初始化配置
 const config = {
     useCOS: !!process.env.TENCENT_COS_SECRET_ID && !!process.env.TENCENT_COS_SECRET_KEY,
@@ -69,27 +70,20 @@ const uploadToCOS = async (file) => {
     }
     try {
         const fileName = generateUniqueFileName(file.originalname);
-        const result = await cos.putObject({
+        const putObjectPromise = util.promisify(cos.putObject).bind(cos);
+        await putObjectPromise({
             Bucket: process.env.TENCENT_COS_BUCKET,
             Region: process.env.TENCENT_COS_REGION,
             Key: `uploads/${fileName}`,
             Body: file.buffer,
             ContentType: file.mimetype
         });
-        if (result.statusCode === 200) {
-            const fileUrl = `${process.env.TENCENT_COS_URL_PREFIX || `https://${process.env.TENCENT_COS_BUCKET}.cos.${process.env.TENCENT_COS_REGION}.myqcloud.com`}/uploads/${fileName}`;
-            return {
-                success: true,
-                url: fileUrl,
-                fileName
-            };
-        }
-        else {
-            return {
-                success: false,
-                error: `COS上传失败，状态码: ${result.statusCode}`
-            };
-        }
+        const fileUrl = `${process.env.TENCENT_COS_URL_PREFIX || `https://${process.env.TENCENT_COS_BUCKET}.cos.${process.env.TENCENT_COS_REGION}.myqcloud.com`}/uploads/${fileName}`;
+        return {
+            success: true,
+            url: fileUrl,
+            fileName
+        };
     }
     catch (error) {
         console.error('COS上传错误:', error);

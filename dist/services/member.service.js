@@ -93,19 +93,25 @@ export const deleteMember = async (memberId, userId) => {
 };
 // 获取成员的亲属关系
 export const getMemberRelatives = async (memberId, userId) => {
-    const [accessRows] = await connection.execute(`SELECT f.id FROM members m
+    const connection = await pool.getConnection();
+    try {
+        const [accessRows] = await connection.execute(`SELECT f.id FROM members m
      JOIN families f ON m.family_id = f.id
      LEFT JOIN family_members fm ON f.id = fm.family_id
      WHERE m.id = ? AND (f.creator_id = ? OR fm.user_id = ?)
      LIMIT 1`, [memberId, userId, userId]);
-    if (accessRows.length === 0) {
-        throw new Error('没有访问权限');
-    }
-    const [rows] = await pool.execute(`SELECT mr.*, m.name as relative_name
+        if (accessRows.length === 0) {
+            throw new Error('没有访问权限');
+        }
+        const [rows] = await pool.execute(`SELECT mr.*, m.name as relative_name
      FROM member_relations mr
      JOIN members m ON mr.relative_id = m.id
      WHERE mr.member_id = ?`, [memberId]);
-    return rows;
+        return rows;
+    }
+    finally {
+        connection.release();
+    }
 };
 // 添加成员亲属关系
 export const addMemberRelative = async (memberId, userId, relativeId, relationType) => {

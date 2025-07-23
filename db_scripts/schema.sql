@@ -22,6 +22,17 @@ CREATE TABLE `users` (
   PRIMARY KEY (`id`)
 ) COMMENT '用户表';
 
+-- 创建 refresh_tokens 表
+CREATE TABLE `refresh_tokens` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `user_id` INT NOT NULL,
+  `token` VARCHAR(255) NOT NULL UNIQUE,
+  `expires_at` TIMESTAMP NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) COMMENT '存储用户的刷新令牌';
+
 
 -- 创建 families 表 (依赖 users)
 CREATE TABLE `families` (

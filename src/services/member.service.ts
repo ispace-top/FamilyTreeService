@@ -144,6 +144,8 @@ export const deleteMember = async (memberId: number, userId: number): Promise<bo
 
 // 获取成员的亲属关系
 export const getMemberRelatives = async (memberId: number, userId: number): Promise<MemberRelation[]> => {
+  const connection = await pool.getConnection();
+  try {
   const [accessRows] = await connection.execute<RowDataPacket[]>(
     `SELECT f.id FROM members m
      JOIN families f ON m.family_id = f.id
@@ -166,6 +168,9 @@ export const getMemberRelatives = async (memberId: number, userId: number): Prom
   );
 
   return rows as MemberRelation[];
+  } finally {
+    connection.release();
+  }
 };
 
 // 添加成员亲属关系
@@ -239,7 +244,7 @@ export const addFamilyMember = async (
     await connection.beginTransaction();
 
     // 验证用户是否为家族管理员或编辑者
-    const [roleRows] = await connection.execute(
+    const [roleRows] = await connection.execute<RowDataPacket[]>(
       `SELECT r.name FROM family_members fm
        JOIN roles r ON fm.role_id = r.id
        WHERE fm.family_id = ? AND fm.user_id = ? AND r.name IN ('admin', 'editor')
@@ -259,7 +264,7 @@ export const addFamilyMember = async (
     );
 
     const memberId = (memberResult as any).insertId;
-    const [memberRows] = await connection.execute('SELECT * FROM members WHERE id = ?', [memberId]);
+    const [memberRows] = await connection.execute<RowDataPacket[]>('SELECT * FROM members WHERE id = ?', [memberId]);
 
     await connection.commit();
     return memberRows[0] as Member;

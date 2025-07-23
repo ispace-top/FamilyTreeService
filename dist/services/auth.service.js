@@ -18,7 +18,7 @@ export const createUser = async (openid, nickname, avatar) => {
             return existingUsers[0];
         }
         // 创建新用户
-        const [result] = await connection.execute('INSERT INTO users (openid, nickname, avatar, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())', [openid, nickname, avatar || null]);
+        const [result] = await connection.execute('INSERT INTO users (openid, nickname, avatar_url, created_at) VALUES (?, ?, ?, NOW())', [openid, nickname, avatar || null]);
         const userId = result.insertId;
         const [newUser] = await connection.execute('SELECT * FROM users WHERE id = ?', [userId]);
         await connection.commit();

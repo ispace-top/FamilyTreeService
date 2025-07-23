@@ -1,13 +1,28 @@
+import fetch from 'node-fetch';
 import * as authService from '../services/auth.service.js';
 // 用户登录
 export const login = async (req, res) => {
     try {
-        const { openid, nickname, avatar } = req.body;
-        if (!openid) {
-            res.status(400).json({ message: 'openid是必填项' });
+        const { code, nickname, avatar } = req.body;
+        if (!code) {
+            res.status(400).json({ message: 'code是必填项' });
             return;
         }
-        const { user, token, refreshToken } = await authService.login(openid, nickname, avatar);
+        // 调用微信API获取openid
+        const appid = process.env.WECHAT_APPID;
+        const secret = process.env.WECHAT_SECRET;
+        const response = await fetch(`https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`);
+        const data = await response.json();
+        if (data.errcode) {
+            res.status(400).json({ message: `微信登录失败: ${data.errmsg}` });
+            return;
+        }
+        const openid = data.openid;
+        let user = await authService.verifyUser(openid);
+        if (!user) {
+            user = await authService.createUser(openid, nickname || '', avatar);
+        }
+        const { token, refreshToken } = await authService.generateTokens(user);
         res.status(200).json({
             message: '登录成功',
             data: {
@@ -35,7 +50,7 @@ export const register = async (req, res) => {
             res.status(400).json({ message: 'openid和nickname是必填项' });
             return;
         }
-        const newUser = await authService.register(openid, nickname, avatar);
+        const newUser = await authService.createUser(openid, nickname, avatar);
         res.status(201).json({
             message: '注册成功',
             data: {
@@ -60,7 +75,12 @@ export const refreshToken = async (req, res) => {
             res.status(400).json({ message: 'refreshToken是必填项' });
             return;
         }
-        const newToken = await authService.refreshToken(refreshToken);
+        const user = await authService.verifyRefreshToken(refreshToken);
+        if (!user) {
+            res.status(401).json({ message: '无效的刷新令牌' });
+            return;
+        }
+        const { token: newToken } = await authService.generateTokens(user);
         res.status(200).json({
             message: '令牌刷新成功',
             data: { token: newToken }
@@ -103,7 +123,9 @@ export const getCurrentUser = async (req, res) => {
 export const logout = async (req, res) => {
     try {
         const { refreshToken } = req.body;
-        await authService.logout(refreshToken);
+        if (req.user) {
+            await authService.logout(req.user.userId, refreshToken);
+        }
         res.status(200).json({ message: '登出成功' });
     }
     catch (error) {

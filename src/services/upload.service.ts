@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { Request } from 'express';
+import util from 'util';
 
 // 定义环境变量类型
 interface UploadConfig {
@@ -95,7 +96,8 @@ const uploadToCOS = async (file: Express.Multer.File): Promise<UploadResult> => 
 
   try {
     const fileName = generateUniqueFileName(file.originalname);
-    const result = await cos.putObject({
+    const putObjectPromise = util.promisify(cos.putObject).bind(cos);
+    await putObjectPromise({
       Bucket: process.env.TENCENT_COS_BUCKET,
       Region: process.env.TENCENT_COS_REGION,
       Key: `uploads/${fileName}`,
@@ -103,18 +105,11 @@ const uploadToCOS = async (file: Express.Multer.File): Promise<UploadResult> => 
       ContentType: file.mimetype
     });
 
-    if (result.statusCode === 200) {
-      const fileUrl = `${process.env.TENCENT_COS_URL_PREFIX || `https://${process.env.TENCENT_COS_BUCKET}.cos.${process.env.TENCENT_COS_REGION}.myqcloud.com`}/uploads/${fileName}`;
-      return {
-        success: true,
-        url: fileUrl,
-        fileName
-      };
-    } else {
-      return {
-        success: false,
-        error: `COS上传失败，状态码: ${result.statusCode}`
-      };
+    const fileUrl = `${process.env.TENCENT_COS_URL_PREFIX || `https://${process.env.TENCENT_COS_BUCKET}.cos.${process.env.TENCENT_COS_REGION}.myqcloud.com`}/uploads/${fileName}`;
+    return {
+      success: true,
+      url: fileUrl,
+      fileName
     }
   } catch (error) {
     console.error('COS上传错误:', error);

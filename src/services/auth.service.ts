@@ -1,4 +1,4 @@
- import pool from '../config/database.js';
+import pool from '../config/database.js';
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
@@ -36,7 +36,7 @@ export const createUser = async (openid: string, nickname: string, avatar?: stri
 
     // 创建新用户
     const [result] = await connection.execute<OkPacket>(
-      'INSERT INTO users (openid, nickname, avatar, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
+      'INSERT INTO users (openid, nickname, avatar_url, created_at) VALUES (?, ?, ?, NOW())',
       [openid, nickname, avatar || null]
     );
 
