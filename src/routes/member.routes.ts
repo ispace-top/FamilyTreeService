@@ -8,7 +8,7 @@ const router: Router = Router();
 router.get('/:id', authenticateToken, memberController.getMemberById);
 router.put('/:id', authenticateToken, memberController.updateMember);
 router.delete('/:id', authenticateToken, memberController.deleteMember);
-router.get('/:memberId/relatives', authenticateToken, memberController.getMemberRelatives);
-router.post('/:memberId/relatives', authenticateToken, memberController.addMemberRelative);
+router.get('/:memberId/relations', authenticateToken, memberController.getMemberRelatives);
+router.post('/:memberId/relations', authenticateToken, memberController.addMemberRelative);
 
 export default router;

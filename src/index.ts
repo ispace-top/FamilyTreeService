@@ -8,7 +8,7 @@ import memberRoutes from './routes/member.routes.js';
 import userRoutes from './routes/user.routes.js';
 
 // 加载环境变量
- dotenv.config();
+dotenv.config();
 
 // 初始化Express应用
 const app: Express = express();

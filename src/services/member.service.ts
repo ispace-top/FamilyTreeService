@@ -11,6 +11,7 @@ export interface Member {
   death_date?: Date;
   father_id?: number;
   mother_id?: number;
+  parent_id?: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -210,12 +211,11 @@ export const addMemberRelative = async (
       return null;
     }
 
-    // 验证亲属是否属于同一个家族
+    // 检查亲属是否属于同一个家族
     const [familyCheck] = await connection.execute<RowDataPacket[]>(
       `SELECT 1 FROM members m1
        JOIN members m2 ON m1.family_id = m2.family_id
-       WHERE m1.id = ? AND m2.id = ?
-       LIMIT 1`,
+       WHERE m1.id = ? AND m2.id = ?`,
       [memberId, relativeId]
     );
 
@@ -223,23 +223,21 @@ export const addMemberRelative = async (
       throw new Error('亲属必须属于同一个家族');
     }
 
-    // 添加亲属关系
-    const [result] = await connection.execute<OkPacket>(
-      'INSERT INTO member_relations (member_id, relative_id, relation_type, created_at) VALUES (?, ?, ?, NOW())',
+    // 插入亲属关系记录
+    const [relationResult] = await connection.execute<OkPacket>(
+      `INSERT INTO member_relations (member_id, relative_id, relation_type, created_at)
+       VALUES (?, ?, ?, NOW())`,
       [memberId, relativeId, relationType]
     );
 
-    const relationId = result.insertId;
-    const [relationRows] = await connection.execute<RowDataPacket[]>(
-      'SELECT * FROM member_relations WHERE id = ?',
-      [relationId]
+    // 获取新创建的关系记录
+    const [newRelationRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT * FROM member_relations WHERE id = ?`,
+      [relationResult.insertId]
     );
 
     await connection.commit();
-    return relationRows[0] as MemberRelation;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
+    return newRelationRows[0] as MemberRelation;
   } finally {
     connection.release();
   }

@@ -220,22 +220,9 @@ export const addFamilyMember = async (req: Request, res: Response): Promise<void
 export const getFamilyTree = async (req: Request, res: Response): Promise<void> => {
   try {
     const familyId = parseInt(req.params.id, 10);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({ code: 401, message: '用户未认证' });
-      return;
-    }
 
     if (isNaN(familyId)) {
       res.status(400).json({ code: 400, message: '无效的家族ID' });
-      return;
-    }
-
-    // 验证用户是否有权限访问该家族
-    const family = await familyService.getFamilyById(familyId, userId);
-    if (!family) {
-      res.status(404).json({ code: 404, message: '家族不存在或无权访问' });
       return;
     }
 

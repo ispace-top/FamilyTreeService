@@ -3,11 +3,11 @@ USE `family_tree`;
 
 -- 最终修正删除顺序：先删除所有子表，再删除父表
 DROP TABLE IF EXISTS `invitations`;
-DROP TABLE IF EXISTS `family_members`;
 DROP TABLE IF EXISTS `family_user_relations`;
+DROP TABLE IF EXISTS `family_members`;
 DROP TABLE IF EXISTS `members`;
-DROP TABLE IF EXISTS `families`;
 DROP TABLE IF EXISTS `refresh_tokens`;
+DROP TABLE IF EXISTS `families`;
 DROP TABLE IF EXISTS `users`;
 DROP TABLE IF EXISTS `roles`;
 
