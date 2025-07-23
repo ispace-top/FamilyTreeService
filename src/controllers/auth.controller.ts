@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import fetch from 'node-fetch';
 import * as authService from '../services/auth.service.js';
+import { userActivityLogger, serverLogger } from '../utils/logger.js';
 
 // 请求体接口定义
 interface LoginRequest {
@@ -52,7 +53,7 @@ export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): 
       user = await authService.createUser(openid, nickname || '', avatar);
     }
     const { token, refreshToken } = await authService.generateTokens(user);
-
+    userActivityLogger.info({ userId: user.id, action: 'login', timestamp: new Date().toISOString() });
     res.status(200).json({
       code: 200,
       message: '登录成功',
@@ -69,7 +70,7 @@ export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): 
 
     });
   } catch (error) {
-    console.error('登录失败:', error);
+    serverLogger.error('登录失败:', error);
     res.status(500).json({ message: '登录失败，请稍后重试' });
   }
 };
@@ -85,7 +86,7 @@ export const register = async (req: Request<{}, {}, RegisterRequest>, res: Respo
     }
 
     const newUser = await authService.createUser(openid, nickname, avatar);
-
+    userActivityLogger.info({ userId: newUser.id, action: 'register', timestamp: new Date().toISOString() });
     res.status(200).json({
       message: '注册成功',
       data: {
@@ -97,7 +98,7 @@ export const register = async (req: Request<{}, {}, RegisterRequest>, res: Respo
       }
     });
   } catch (error) {
-    console.error('注册失败:', error);
+    serverLogger.error('注册失败:', error);
     res.status(500).json({ message: '注册失败，请稍后重试' });
   }
 };
@@ -124,7 +125,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
       data: { token: newToken }
     });
   } catch (error) {
-    console.error('令牌刷新失败:', error);
+    serverLogger.error('令牌刷新失败:', error);
     res.status(401).json({ message: '刷新令牌无效或已过期' });
   }
 };
@@ -155,7 +156,7 @@ export const getCurrentUser = async (req: Request, res: Response): Promise<void>
       }
     });
   } catch (error) {
-    console.error('获取用户信息失败:', error);
+    serverLogger.error('获取用户信息失败:', error);
     res.status(500).json({ message: '获取用户信息失败，请稍后重试' });
   }
 };
@@ -166,11 +167,12 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
     const { refreshToken } = req.body;
     if (req.user) {
       await authService.logout(req.user.userId, refreshToken);
+      userActivityLogger.info({ userId: req.user.userId, action: 'logout', timestamp: new Date().toISOString() });
     }
 
     res.status(200).json({ message: '登出成功' });
   } catch (error) {
-    console.error('登出失败:', error);
+    serverLogger.error('登出失败:', error);
     res.status(500).json({ message: '登出失败，请稍后重试' });
   }
 };

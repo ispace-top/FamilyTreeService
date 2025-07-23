@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as memberService from '../services/member.service.js';
 import { Member, MemberRelation } from '../services/member.service.js';
+import { userActivityLogger, serverLogger } from '../utils/logger.js';
 
 // 获取成员详情
 export const getMemberById = async (req: Request, res: Response): Promise<void> => {
@@ -24,6 +25,7 @@ export const getMemberById = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    userActivityLogger.info({ userId, action: 'update_member', memberId, timestamp: new Date().toISOString() });
     res.status(200).json({
       message: '获取成员详情成功',
       data: member
@@ -33,7 +35,7 @@ export const getMemberById = async (req: Request, res: Response): Promise<void> 
       res.status(403).json({ message: '无权限访问' });
       return;
     }
-    console.error('获取成员详情失败:', error);
+    serverLogger.error('获取成员详情失败:', error);
     res.status(500).json({ message: '获取成员详情失败，请稍后重试' });
   }
 };
@@ -66,7 +68,7 @@ export const updateMember = async (req: Request, res: Response): Promise<void> =
       data: updatedMember
     });
   } catch (error) {
-    console.error('更新成员信息失败:', error);
+    serverLogger.error('更新成员信息失败:', error);
     res.status(500).json({ message: '更新成员信息失败，请稍后重试' });
   }
 };
@@ -93,9 +95,10 @@ export const deleteMember = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
+    userActivityLogger.info({ userId, action: 'delete_member', memberId, timestamp: new Date().toISOString() });
     res.status(200).json({ message: '成员删除成功' });
   } catch (error) {
-    console.error('删除成员失败:', error);
+    serverLogger.error('删除成员失败:', error);
     res.status(500).json({ message: '删除成员失败，请稍后重试' });
   }
 };
@@ -150,6 +153,7 @@ export const addMemberRelative = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    userActivityLogger.info({ userId, action: 'add_member_relation', memberId, relativeId, relationType, timestamp: new Date().toISOString() });
     res.status(201).json({
       message: '添加成员亲属关系成功',
       data: newRelation

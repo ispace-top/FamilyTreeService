@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as familyService from '../services/family.service.js';
 import { Family } from '../services/family.service.js';
+import { userActivityLogger, serverLogger } from '../utils/logger.js';
 
 // 创建家族
 export const createFamily = async (req: Request, res: Response): Promise<void> => {
@@ -19,13 +20,14 @@ export const createFamily = async (req: Request, res: Response): Promise<void> =
     }
 
     const family = await familyService.createFamily(userId, name, description);
+    userActivityLogger.info({ userId, action: 'create_family', familyId: family.id, familyName: name, timestamp: new Date().toISOString() });
     res.status(201).json({
       code: 201,
       message: '家族创建成功',
       data: family
     });
   } catch (error) {
-    console.error('创建家族失败:', error);
+    serverLogger.error('创建家族失败:', error);
     res.status(500).json({ message: '创建家族失败，请稍后重试' });
   }
 };
@@ -52,13 +54,14 @@ export const getFamilyById = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    userActivityLogger.info({ userId, action: 'delete_family', familyId, timestamp: new Date().toISOString() });
     res.status(200).json({
       code: 200,
       message: '获取家族详情成功',
       data: family
     });
   } catch (error) {
-    console.error('获取家族详情失败:', error);
+    serverLogger.error('获取家族详情失败:', error);
     res.status(500).json({ message: '获取家族详情失败，请稍后重试' });
   }
 };
@@ -92,7 +95,7 @@ export const updateFamily = async (req: Request, res: Response): Promise<void> =
       data: updatedFamily
     });
   } catch (error) {
-    console.error('更新家族信息失败:', error);
+    serverLogger.error('更新家族信息失败:', error);
     res.status(500).json({ message: '更新家族信息失败，请稍后重试' });
   }
 };
@@ -114,7 +117,7 @@ export const getUserFamilies = async (req: Request, res: Response): Promise<void
       data: families
     });
   } catch (error) {
-    console.error('获取用户家族列表失败:', error);
+    serverLogger.error('获取用户家族列表失败:', error);
     res.status(500).json({ code: 500, message: '获取用户家族列表失败，请稍后重试' });
   }
 };
@@ -146,7 +149,7 @@ export const deleteFamily = async (req: Request, res: Response): Promise<void> =
       message: '家族删除成功'
     });
   } catch (error) {
-    console.error('删除家族失败:', error);
+    serverLogger.error('删除家族失败:', error);
     res.status(500).json({ message: '删除家族失败，请稍后重试' });
   }
 };
@@ -174,7 +177,7 @@ export const getFamilyMembers = async (req: Request, res: Response): Promise<voi
       data: members
     });
   } catch (error) {
-    console.error('获取家族成员列表失败:', error);
+    serverLogger.error('获取家族成员列表失败:', error);
     res.status(500).json({ message: '获取家族成员列表失败，请稍后重试' });
   }
 };
