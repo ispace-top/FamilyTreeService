@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { RowDataPacket, OkPacket } from 'mysql2/promise';
 import { Member } from './member.service.js';
+import crypto from 'crypto';
 
 // 家族数据模型接口
 export interface Family {
@@ -10,6 +11,17 @@ export interface Family {
   creator_id: number;
   created_at: Date;
   updated_at: Date;
+}
+
+// 邀请数据模型接口
+export interface Invitation {
+    id: number;
+    family_id: number;
+    inviter_id: number;
+    token: string;
+    status: 'active' | 'used' | 'expired';
+    expires_at: Date;
+    created_at: Date;
 }
 
 // 获取用户的所有家族
@@ -30,6 +42,15 @@ export const createFamily = async (creatorId: number, name: string, description?
     try {
         await connection.beginTransaction();
 
+        const maxFamilies = parseInt(process.env.MAX_FAMILIES_PER_USER || '2', 10);
+        const [rows] = await connection.execute<RowDataPacket[]>(
+            'SELECT COUNT(*) as count FROM family_user_relations WHERE user_id = ?',
+            [creatorId]
+        );
+        if (rows[0].count >= maxFamilies) {
+            throw new Error(`User cannot create or join more than ${maxFamilies} families.`);
+        }
+
         const [familyResult] = await connection.execute<OkPacket>(
             'INSERT INTO families (name, description, creator_id) VALUES (?, ?, ?)',
             [name, description || null, creatorId]
@@ -41,10 +62,10 @@ export const createFamily = async (creatorId: number, name: string, description?
             [familyId, creatorId, 'admin']
         );
 
-        const [rows] = await connection.execute<RowDataPacket[]>('SELECT * FROM families WHERE id = ?', [familyId]);
+        const [familyRows] = await connection.execute<RowDataPacket[]>('SELECT * FROM families WHERE id = ?', [familyId]);
         
         await connection.commit();
-        return rows[0] as Family;
+        return familyRows[0] as Family;
     } catch (error) {
         await connection.rollback();
         throw error;
@@ -114,14 +135,13 @@ export const updateFamily = async (
 export const deleteFamily = async (familyId: number, userId: number): Promise<boolean> => {
     const connection = await pool.getConnection();
     try {
-        const [familyRows] = await connection.execute<RowDataPacket[]>(
-            'SELECT creator_id FROM families WHERE id = ?',
-            [familyId]
+        const [relationRows] = await connection.execute<RowDataPacket[]>(
+            "SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?",
+            [familyId, userId]
         );
-        if (familyRows.length === 0 || familyRows[0].creator_id !== userId) {
-            return false; // 家族不存在或用户不是创建者
+        if (relationRows.length === 0 || relationRows[0].role !== 'admin') {
+            return false;
         }
-
         await connection.execute<OkPacket>('DELETE FROM families WHERE id = ?', [familyId]);
         return true;
     } finally {
@@ -130,20 +150,27 @@ export const deleteFamily = async (familyId: number, userId: number): Promise<bo
 };
 
 // 获取家族成员列表
-export const getFamilyMembers = async (familyId: number, userId: number): Promise<any[]> => {
+export const getFamilyMembers = async (familyId: number, userId: number, searchTerm?: string): Promise<any[]> => {
     const hasAccess = await getFamilyById(familyId, userId);
     if (!hasAccess) {
         throw new Error('No permission to access this family');
     }
 
-    const [rows] = await pool.execute<RowDataPacket[]>(
-        `SELECT m.*, r.role 
-         FROM members m
-         LEFT JOIN family_user_relations r ON m.id = r.member_id
-         WHERE m.family_id = ?
-         ORDER BY m.id`,
-        [familyId]
-    );
+    let query = `
+        SELECT m.*, r.role 
+        FROM members m
+        LEFT JOIN family_user_relations r ON m.id = r.member_id
+        WHERE m.family_id = ?
+    `;
+    const params: (string | number)[] = [familyId];
+
+    if (searchTerm) {
+        query += ' AND m.name LIKE ?';
+        params.push(`%${searchTerm}%`);
+    }
+    query += ' ORDER BY m.id';
+
+    const [rows] = await pool.execute<RowDataPacket[]>(query, params);
     return rows as any[];
 };
 
@@ -151,7 +178,7 @@ export const getFamilyMembers = async (familyId: number, userId: number): Promis
 /**
  * 获取并构建家族的树状结构数据
  */
-export const getFamilyTree = async (familyId: number, userId: number): Promise<any> => {
+export const getFamilyTree = async (familyId: number, userId: number): Promise<any[]> => {
   const hasAccess = await getFamilyById(familyId, userId);
   if (!hasAccess) {
     throw new Error('No permission to access this family');
@@ -160,7 +187,7 @@ export const getFamilyTree = async (familyId: number, userId: number): Promise<a
   const [memberRows] = await pool.query<RowDataPacket[]>('SELECT * FROM members WHERE family_id = ?', [familyId]);
   const members = memberRows as Member[];
   if (members.length === 0) {
-    return { id: familyId, name: hasAccess.name, children: [] };
+    return [];
   }
 
   const memberMap = new Map<number, any>();
@@ -193,9 +220,112 @@ export const getFamilyTree = async (familyId: number, userId: number): Promise<a
     !(r.spouse_id && rootIds.has(r.spouse_id) && r.id > r.spouse_id)
   );
 
-  return {
-    id: familyId,
-    name: hasAccess.name,
-    children: finalRoots
-  };
+  return finalRoots;
+};
+
+
+// [新增] 更新家族成员角色
+export const updateMemberRole = async (familyId: number, adminUserId: number, targetUserId: number, role: 'admin' | 'editor' | 'member'): Promise<void> => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const [adminRows] = await connection.execute<RowDataPacket[]>(
+            'SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ?',
+            [familyId, adminUserId]
+        );
+        if (adminRows.length === 0 || adminRows[0].role !== 'admin') {
+            throw new Error('Permission denied: User is not an admin of this family');
+        }
+
+        if (role !== 'admin') {
+            const [adminCountRows] = await connection.execute<RowDataPacket[]>(
+                'SELECT COUNT(*) as count FROM family_user_relations WHERE family_id = ? AND role = "admin"',
+                [familyId]
+            );
+            if (adminCountRows[0].count <= 1) {
+                const [targetUserAdminRows] = await connection.execute<RowDataPacket[]>(
+                    'SELECT role FROM family_user_relations WHERE family_id = ? AND user_id = ? AND role = "admin"',
+                    [familyId, targetUserId]
+                );
+                if (targetUserAdminRows.length > 0) {
+                    throw new Error('Cannot remove the last admin of the family');
+                }
+            }
+        }
+
+        await connection.execute(
+            'UPDATE family_user_relations SET role = ? WHERE family_id = ? AND user_id = ?',
+            [role, familyId, targetUserId]
+        );
+        
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+};
+
+// [新增] 创建邀请
+export const createInvitation = async (familyId: number, inviterId: number): Promise<Invitation> => {
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7天后过期
+
+    const [result] = await pool.execute<OkPacket>(
+        'INSERT INTO invitations (family_id, inviter_id, token, expires_at) VALUES (?, ?, ?, ?)',
+        [familyId, inviterId, token, expiresAt]
+    );
+
+    const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM invitations WHERE id = ?', [result.insertId]);
+    return rows[0] as Invitation;
+};
+
+// [新增] 接受邀请
+export const acceptInvitation = async (token: string, newUserId: number): Promise<{ success: boolean; message: string; familyId?: number }> => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const [invitationRows] = await connection.execute<RowDataPacket[]>(
+            'SELECT * FROM invitations WHERE token = ? AND status = "active" AND expires_at > NOW()',
+            [token]
+        );
+
+        if (invitationRows.length === 0) {
+            await connection.rollback();
+            return { success: false, message: 'Invitation is invalid or has expired.' };
+        }
+
+        const invitation = invitationRows[0] as Invitation;
+
+        const [existingRelation] = await connection.execute<RowDataPacket[]>(
+            'SELECT * FROM family_user_relations WHERE family_id = ? AND user_id = ?',
+            [invitation.family_id, newUserId]
+        );
+
+        if (existingRelation.length > 0) {
+            await connection.rollback();
+            return { success: false, message: 'User is already a member of this family.' };
+        }
+
+        await connection.execute(
+            'INSERT INTO family_user_relations (family_id, user_id, role) VALUES (?, ?, ?)',
+            [invitation.family_id, newUserId, 'member']
+        );
+
+        await connection.execute(
+            'UPDATE invitations SET status = "used" WHERE id = ?',
+            [invitation.id]
+        );
+        
+        await connection.commit();
+        return { success: true, message: 'Successfully joined the family!', familyId: invitation.family_id };
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
 };

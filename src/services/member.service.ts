@@ -42,7 +42,7 @@ export const getMemberById = async (memberId: number, userId: number): Promise<M
   return member;
 };
 
-// 更新成员信息 (已修正: 权限验证使用 family_user_relations)
+// 更新成员信息 (已优化: 增加普通成员编辑自己信息的权限)
 export const updateMember = async (
   memberId: number,
   userId: number,
@@ -59,15 +59,35 @@ export const updateMember = async (
         }
         const familyId = memberRows[0].family_id;
 
-        // 权限检查: 必须是家族的管理员或编辑
+        // --- 权限检查逻辑重构 ---
         const [relationRows] = await connection.execute<RowDataPacket[]>(
-            'SELECT role FROM family_user_relations WHERE user_id = ? AND family_id = ?',
+            'SELECT role, member_id FROM family_user_relations WHERE user_id = ? AND family_id = ?',
             [userId, familyId]
         );
-        if (relationRows.length === 0 || !['admin', 'editor'].includes(relationRows[0].role)) {
+
+        if (relationRows.length === 0) {
             await connection.rollback();
-            throw new Error('User does not have permission to edit members in this family');
+            throw new Error('User does not belong to this family');
         }
+        
+        const userRelation = relationRows[0];
+        const userRole = userRelation.role;
+        const userLinkedMemberId = userRelation.member_id; // 当前登录用户关联的成员ID
+
+        // 检查是否为管理员或编辑
+        const isAdminOrEditor = ['admin', 'editor'].includes(userRole);
+        // 检查是否在修改自己的信息 (前提是用户已关联一个成员)
+        const isEditingSelf = userLinkedMemberId !== null && userLinkedMemberId === memberId;
+        
+        // TODO: 未来可扩展: 检查是否在修改直系亲属
+        // const isEditingDirectRelative = await checkIsDirectRelative(userLinkedMemberId, memberId, connection);
+
+        if (!isAdminOrEditor && !isEditingSelf) {
+            await connection.rollback();
+            throw new Error('User does not have permission to edit this member');
+        }
+        // --- 权限检查结束 ---
+
 
         // 构建更新语句
         const fields = ['name', 'gender', 'status', 'birth_date', 'death_date', 'father_id', 'mother_id', 'spouse_id', 'phone', 'wechat_id', 'original_address', 'current_address', 'occupation'];
