@@ -28,4 +28,4 @@ ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 EXPOSE 3000
 
 # 10. 定义传递给入口脚本的默认命令
-CMD ["pm2-runtime", "start", "ecosystem.config.js", "--env", "production"]
+CMD ["pm2-runtime", "start", "ecosystem.config.cjs", "--env", "production"]
