@@ -1,46 +1,48 @@
 import { Request, Response } from 'express';
 import * as memberService from '../services/member.service.js';
-import { Member, MemberRelation } from '../services/member.service.js';
 import { userActivityLogger, serverLogger } from '../utils/logger.js';
 
-// 获取成员详情
+/**
+ * 获取指定成员的详细信息
+ */
 export const getMemberById = async (req: Request, res: Response): Promise<void> => {
   try {
     const memberId = parseInt(req.params.id, 10);
     const userId = req.user?.userId;
 
     if (!userId) {
-      res.status(401).json({ message: '用户未认证' });
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
       return;
     }
-
     if (isNaN(memberId)) {
-      res.status(400).json({ message: '无效的成员ID' });
+      res.status(400).json({ code: 400, message: 'Invalid member ID' });
       return;
     }
 
     const member = await memberService.getMemberById(memberId, userId);
     if (!member) {
-      res.status(404).json({ message: '成员不存在' });
+      res.status(404).json({ code: 404, message: 'Member not found' });
       return;
     }
 
-    userActivityLogger.info({ userId, action: 'update_member', memberId, timestamp: new Date().toISOString() });
     res.status(200).json({
-      message: '获取成员详情成功',
+      code: 200,
+      message: 'Successfully fetched member details',
       data: member
     });
   } catch (error) {
-    if (error instanceof Error && error.message === 'No permission') {
-      res.status(403).json({ message: '无权限访问' });
-      return;
+    if (error instanceof Error && error.message.includes('No permission')) {
+        res.status(403).json({ code: 403, message: 'No permission to access this member' });
+    } else {
+        serverLogger.error('Failed to get member details:', error);
+        res.status(500).json({ code: 500, message: 'Failed to get member details' });
     }
-    serverLogger.error('获取成员详情失败:', error);
-    res.status(500).json({ message: '获取成员详情失败，请稍后重试' });
   }
 };
 
-// 更新成员信息
+/**
+ * 更新指定成员的信息
+ */
 export const updateMember = async (req: Request, res: Response): Promise<void> => {
   try {
     const memberId = parseInt(req.params.id, 10);
@@ -48,118 +50,58 @@ export const updateMember = async (req: Request, res: Response): Promise<void> =
     const memberData = req.body;
 
     if (!userId) {
-      res.status(401).json({ message: '用户未认证' });
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
       return;
     }
-
     if (isNaN(memberId)) {
-      res.status(400).json({ message: '无效的成员ID' });
+      res.status(400).json({ code: 400, message: 'Invalid member ID' });
       return;
     }
 
     const updatedMember = await memberService.updateMember(memberId, userId, memberData);
     if (!updatedMember) {
-      res.status(404).json({ message: '成员不存在或无权更新' });
+      res.status(404).json({ code: 404, message: 'Member not found or no permission to update' });
       return;
     }
 
+    userActivityLogger.info({ userId, action: 'update_member', memberId });
     res.status(200).json({
-      message: '更新成员信息成功',
+      code: 200,
+      message: 'Member information updated successfully',
       data: updatedMember
     });
   } catch (error) {
-    serverLogger.error('更新成员信息失败:', error);
-    res.status(500).json({ message: '更新成员信息失败，请稍后重试' });
+    serverLogger.error('Failed to update member:', error);
+    res.status(500).json({ code: 500, message: 'Failed to update member information' });
   }
 };
 
-// 删除成员
+/**
+ * 删除指定成员
+ */
 export const deleteMember = async (req: Request, res: Response): Promise<void> => {
   try {
     const memberId = parseInt(req.params.id, 10);
     const userId = req.user?.userId;
 
     if (!userId) {
-      res.status(401).json({ message: '用户未认证' });
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
       return;
     }
-
     if (isNaN(memberId)) {
-      res.status(400).json({ message: '无效的成员ID' });
+      res.status(400).json({ code: 400, message: 'Invalid member ID' });
+      return;
+    }
+    const success = await memberService.deleteMember(memberId, userId);
+    if (!success) {
+      res.status(404).json({ code: 404, message: 'Member not found or no permission to delete' });
       return;
     }
 
-    const result = await memberService.deleteMember(memberId, userId);
-    if (!result) {
-      res.status(404).json({ message: '成员不存在或无权删除' });
-      return;
-    }
-
-    userActivityLogger.info({ userId, action: 'delete_member', memberId, timestamp: new Date().toISOString() });
-    res.status(200).json({ message: '成员删除成功' });
+    userActivityLogger.info({ userId, action: 'delete_member', memberId });
+    res.status(200).json({ code: 200, message: 'Member deleted successfully' });
   } catch (error) {
-    serverLogger.error('删除成员失败:', error);
-    res.status(500).json({ message: '删除成员失败，请稍后重试' });
-  }
-};
-
-// 获取成员亲属关系
-export const getMemberRelatives = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const memberId = parseInt(req.params.memberId, 10);
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({ message: '用户未认证' });
-      return;
-    }
-
-    if (isNaN(memberId)) {
-      res.status(400).json({ message: '无效的成员ID' });
-      return;
-    }
-
-    const relatives = await memberService.getMemberRelatives(memberId, userId);
-    res.status(200).json({
-      message: '获取成员亲属关系成功',
-      data: relatives
-    });
-  } catch (error) {
-    console.error('获取成员亲属关系失败:', error);
-    res.status(500).json({ message: '获取成员亲属关系失败，请稍后重试' });
-  }
-};
-
-// 添加成员亲属关系
-export const addMemberRelative = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const memberId = parseInt(req.params.memberId, 10);
-    const { relativeId, relationType } = req.body;
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({ message: '用户未认证' });
-      return;
-    }
-
-    if (isNaN(memberId) || !relativeId || !relationType) {
-      res.status(400).json({ message: '成员ID、亲属ID和关系类型是必填项' });
-      return;
-    }
-
-    const newRelation = await memberService.addMemberRelative(memberId, userId, relativeId, relationType);
-    if (!newRelation) {
-      res.status(403).json({ message: '没有添加亲属关系的权限' });
-      return;
-    }
-
-    userActivityLogger.info({ userId, action: 'add_member_relation', memberId, relativeId, relationType, timestamp: new Date().toISOString() });
-    res.status(201).json({
-      message: '添加成员亲属关系成功',
-      data: newRelation
-    });
-  } catch (error) {
-    console.error('添加成员亲属关系失败:', error);
-    res.status(500).json({ message: '添加成员亲属关系失败，请稍后重试' });
+    serverLogger.error('Failed to delete member:', error);
+    res.status(500).json({ code: 500, message: 'Failed to delete member' });
   }
 };

@@ -3,20 +3,7 @@ import fetch from 'node-fetch';
 import * as authService from '../services/auth.service.js';
 import { userActivityLogger, serverLogger } from '../utils/logger.js';
 
-// 请求体接口定义
-interface LoginRequest {
-  code: string;
-  nickname?: string;
-  avatar?: string;
-}
-
-interface RegisterRequest {
-  openid: string;
-  nickname: string;
-  avatar?: string;
-}
-
-// 微信code2Session响应接口
+// 微信 code2Session API 的响应接口
 interface Code2SessionResponse {
   openid: string;
   session_key: string;
@@ -25,154 +12,144 @@ interface Code2SessionResponse {
   errmsg?: string;
 }
 
-// 用户登录
-export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): Promise<void> => {
+/**
+ * 用户登录或注册
+ * 接收小程序的 code，换取 openid，然后创建或更新用户信息，最后返回 JWT
+ */
+export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { code, nickname, avatar } = req.body;
 
     if (!code) {
-      res.status(400).json({ message: 'code是必填项' });
+      res.status(400).json({ code: 400, message: 'code is required' });
       return;
     }
 
-    // 调用微信API获取openid
+    // 1. 调用微信API换取 openid
     const appid = process.env.WECHAT_APPID;
     const secret = process.env.WECHAT_SECRET;
     const response = await fetch(`https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`);
+    
+    if (!response.ok) {
+        throw new Error(`WeChat API request failed with status ${response.status}`);
+    }
+
     const data = await response.json() as Code2SessionResponse;
 
     if (data.errcode) {
-      res.status(400).json({ message: `微信登录失败: ${data.errmsg}` });
+      serverLogger.error('WeChat login error:', data);
+      res.status(400).json({ code: 400, message: `WeChat login failed: ${data.errmsg}` });
       return;
     }
 
     const openid = data.openid;
 
-    let user = await authService.verifyUser(openid);
-    if (!user) {
-      user = await authService.createUser(openid, nickname || '', avatar);
-    }
+    // 2. 创建或更新用户信息
+    const user = await authService.createUser(openid, nickname || '微信用户', avatar);
+    
+    // 3. 生成并返回令牌
     const { token, refreshToken } = await authService.generateTokens(user);
     userActivityLogger.info({ userId: user.id, action: 'login', timestamp: new Date().toISOString() });
+    
     res.status(200).json({
       code: 200,
-      message: '登录成功',
+      message: 'Login successful',
       data: {
+        token,
+        refreshToken,
         user: {
           id: user.id,
-          openid: user.openid,
           nickname: user.nickname,
-          avatar: user.avatar
+          avatar_url: user.avatar_url,
         },
-        token,
-        refreshToken
       },
-
     });
   } catch (error) {
-    serverLogger.error('登录失败:', error);
-    res.status(500).json({ message: '登录失败，请稍后重试' });
+    serverLogger.error('Login process failed:', error);
+    res.status(500).json({ code: 500, message: 'Login failed, please try again later' });
   }
 };
 
-// 用户注册
-export const register = async (req: Request<{}, {}, RegisterRequest>, res: Response): Promise<void> => {
-  try {
-    const { openid, nickname, avatar } = req.body;
 
-    if (!openid || !nickname) {
-      res.status(400).json({ message: 'openid和nickname是必填项' });
-      return;
-    }
-
-    const newUser = await authService.createUser(openid, nickname, avatar);
-    userActivityLogger.info({ userId: newUser.id, action: 'register', timestamp: new Date().toISOString() });
-    res.status(200).json({
-      message: '注册成功',
-      data: {
-        id: newUser.id,
-        openid: newUser.openid,
-        nickname: newUser.nickname,
-        avatar: newUser.avatar,
-        created_at: newUser.created_at
-      }
-    });
-  } catch (error) {
-    serverLogger.error('注册失败:', error);
-    res.status(500).json({ message: '注册失败，请稍后重试' });
-  }
-};
-
-// 刷新令牌
+/**
+ * 刷新访问令牌
+ */
 export const refreshToken = async (req: Request, res: Response): Promise<void> => {
   try {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
-      res.status(400).json({ message: 'refreshToken是必填项' });
+      res.status(400).json({ code: 400, message: 'refreshToken is required' });
       return;
     }
 
     const user = await authService.verifyRefreshToken(refreshToken);
     if (!user) {
-      res.status(401).json({ message: '无效的刷新令牌' });
+      res.status(401).json({ code: 401, message: 'Invalid or expired refresh token' });
       return;
     }
+
     const { token: newToken } = await authService.generateTokens(user);
 
     res.status(200).json({
-      message: '令牌刷新成功',
+      code: 200,
+      message: 'Token refreshed successfully',
       data: { token: newToken }
     });
   } catch (error) {
-    serverLogger.error('令牌刷新失败:', error);
-    res.status(401).json({ message: '刷新令牌无效或已过期' });
+    serverLogger.error('Token refresh failed:', error);
+    res.status(500).json({ code: 500, message: 'Failed to refresh token' });
   }
 };
 
-// 获取当前用户信息
+/**
+ * 获取当前登录用户信息
+ */
 export const getCurrentUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
-      res.status(401).json({ message: '用户未认证' });
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
       return;
     }
 
-    const user = await authService.getUserById(req.user.userId);
-
+    const user = await authService.getUserById(userId);
     if (!user) {
-      res.status(404).json({ message: '用户不存在' });
+      res.status(404).json({ code: 404, message: 'User not found' });
       return;
     }
 
     res.status(200).json({
-      message: '获取用户信息成功',
+      code: 200,
+      message: 'Successfully fetched user information',
       data: {
         id: user.id,
-        openid: user.openid,
         nickname: user.nickname,
-        avatar: user.avatar,
-        created_at: user.created_at
+        avatar_url: user.avatar_url
       }
     });
   } catch (error) {
-    serverLogger.error('获取用户信息失败:', error);
-    res.status(500).json({ message: '获取用户信息失败，请稍后重试' });
+    serverLogger.error('Failed to get current user:', error);
+    res.status(500).json({ code: 500, message: 'Failed to get user information' });
   }
 };
 
-// 用户登出
+/**
+ * 用户登出
+ */
 export const logout = async (req: Request, res: Response): Promise<void> => {
   try {
+    const userId = req.user?.userId;
     const { refreshToken } = req.body;
-    if (req.user) {
-      await authService.logout(req.user.userId, refreshToken);
-      userActivityLogger.info({ userId: req.user.userId, action: 'logout', timestamp: new Date().toISOString() });
+
+    if (userId) {
+      await authService.logout(userId, refreshToken);
+      userActivityLogger.info({ userId, action: 'logout', timestamp: new Date().toISOString() });
     }
 
-    res.status(200).json({ message: '登出成功' });
+    res.status(200).json({ code: 200, message: 'Logout successful' });
   } catch (error) {
-    serverLogger.error('登出失败:', error);
-    res.status(500).json({ message: '登出失败，请稍后重试' });
+    serverLogger.error('Logout failed:', error);
+    res.status(500).json({ code: 500, message: 'Logout failed' });
   }
 };

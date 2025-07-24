@@ -1,15 +1,15 @@
 -- 切换到我们的数据库
 USE `family_tree`;
 
--- 最终修正删除顺序：先删除所有子表，再删除父表
+-- 最终修正删除顺序：先删除所有有外键依赖的子表，再删除父表
 DROP TABLE IF EXISTS `invitations`;
 DROP TABLE IF EXISTS `family_user_relations`;
-DROP TABLE IF EXISTS `family_members`;
+DROP TABLE IF EXISTS `family_members`; -- 移除冗余的表
 DROP TABLE IF EXISTS `members`;
 DROP TABLE IF EXISTS `refresh_tokens`;
 DROP TABLE IF EXISTS `families`;
 DROP TABLE IF EXISTS `users`;
-DROP TABLE IF EXISTS `roles`;
+DROP TABLE IF EXISTS `roles`; -- 移除冗余的表
 
 
 -- 创建 users 表 (最顶层父表)
@@ -51,30 +51,15 @@ CREATE TABLE `families` (
   FOREIGN KEY (`creator_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) COMMENT '家族表';
 
-
--- 创建 roles 表
-CREATE TABLE `roles` (
-  `id` INT NOT NULL AUTO_INCREMENT,
-  `name` VARCHAR(50) NOT NULL UNIQUE COMMENT '角色名称',
-  `description` TEXT NULL COMMENT '角色描述',
-  PRIMARY KEY (`id`)
-) COMMENT '角色表';
-
--- 插入默认角色数据
-INSERT INTO `roles` (`name`, `description`) VALUES
-('admin', '管理员，拥有全部权限'),
-('editor', '编辑者，可添加和修改成员信息'),
-('member', '成员，只能查看信息');
-
--- 创建 members 表
+-- 创建 members 表 (核心修正)
 CREATE TABLE `members` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `family_id` INT NOT NULL COMMENT '所属家族ID',
   `name` VARCHAR(50) NOT NULL COMMENT '姓名',
-  `gender` ENUM('male', 'female') NOT NULL COMMENT '性别',
+  `gender` ENUM('male', 'female', 'other') NOT NULL COMMENT '性别',
   `status` ENUM('alive', 'deceased') NOT NULL DEFAULT 'alive' COMMENT '状态',
-  `birth_date` VARCHAR(50) NULL COMMENT '出生日期 (使用字符串以支持模糊日期)',
-  `death_date` VARCHAR(50) NULL COMMENT '去世日期 (使用字符串以支持模糊日期)',
+  `birth_date` VARCHAR(50) NULL COMMENT '出生日期 (字符串)',
+  `death_date` VARCHAR(50) NULL COMMENT '去世日期 (字符串)',
   `father_id` INT NULL COMMENT '父亲ID',
   `mother_id` INT NULL COMMENT '母亲ID',
   `spouse_id` INT NULL COMMENT '配偶ID',
@@ -84,11 +69,16 @@ CREATE TABLE `members` (
   `current_address` VARCHAR(255) NULL,
   `occupation` VARCHAR(100) NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
+  -- 添加外键自我引用，确保关系完整性
+  FOREIGN KEY (`father_id`) REFERENCES `members`(`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`mother_id`) REFERENCES `members`(`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`spouse_id`) REFERENCES `members`(`id`) ON DELETE SET NULL
 ) COMMENT '家族成员表';
 
 
--- 创建 family_user_relations 表 (依赖 users 和 families)
+-- 创建 family_user_relations 表 (统一的关系表)
 CREATE TABLE `family_user_relations` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `family_id` INT NOT NULL,
@@ -101,19 +91,6 @@ CREATE TABLE `family_user_relations` (
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`member_id`) REFERENCES `members`(`id`) ON DELETE SET NULL
 ) COMMENT '家族与用户的关系表';
-
-CREATE TABLE IF NOT EXISTS family_members (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `family_id` INT NOT NULL,
-  `user_id` INT NOT NULL,
-  `role_id` INT NOT NULL DEFAULT 3 COMMENT '默认为成员角色',
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`),
-  UNIQUE KEY `unique_family_user` (`family_id`, `user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
 -- 创建 invitations 表 (依赖 users 和 families)
