@@ -225,9 +225,13 @@ export const getFamilyTree = async (req: Request, res: Response): Promise<void> 
       res.status(400).json({ code: 400, message: '无效的家族ID' });
       return;
     }
-
     // 获取家族树数据
-    const familyTree = await familyService.getFamilyTree(familyId);
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ message: '用户未认证' });
+      return;
+    }
+    const familyTree = await familyService.getFamilyTree(familyId, userId);
     res.status(200).json({
       code: 200,
       message: '获取家族树成功',

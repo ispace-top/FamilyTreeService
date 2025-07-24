@@ -63,8 +63,10 @@ export const updateMember = async (
     const [accessRows] = await connection.execute<RowDataPacket[]>(
       `SELECT f.id FROM members m
        JOIN families f ON m.family_id = f.id
-       LEFT JOIN family_members fm ON f.id = fm.family_id
-       WHERE m.id = ? AND (f.creator_id = ? OR fm.user_id = ?)
+       WHERE m.id = ? AND (
+         f.creator_id = ? OR 
+         EXISTS (SELECT 1 FROM family_members fm WHERE fm.family_id = f.id AND fm.user_id = ?)
+       )
        LIMIT 1`,
       [memberId, userId, userId]
     );
