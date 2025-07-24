@@ -5,13 +5,15 @@ import path from 'path';
 import crypto from 'crypto';
 import { Request } from 'express';
 import util from 'util';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 定义环境变量类型
 interface UploadConfig {
   useCOS: boolean;
   cos?: COS;
   serverUrl: string;
-  port: string;
   maxFileSize: number;
   allowedMimeTypes: string[];
 }
@@ -27,9 +29,8 @@ interface UploadResult {
 // 初始化配置
 const config: UploadConfig = {
   useCOS: !!process.env.TENCENT_COS_SECRET_ID && !!process.env.TENCENT_COS_SECRET_KEY,
-  serverUrl: process.env.SERVER_PUBLIC_URL || 'http://localhost',
-  port: process.env.PORT || '3000',
-  maxFileSize: 5 * 1024 * 1024, // 5MB
+  serverUrl: process.env.SERVER_PUBLIC_URL || 'http://localhost:3000',
+  maxFileSize: 10 * 1024 * 1024, // 10MB
   allowedMimeTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 };
 
@@ -136,8 +137,9 @@ const uploadToLocal = async (file: Express.Multer.File): Promise<UploadResult> =
 
     fs.writeFileSync(filePath, file.buffer);
     
-    // 构建文件URL
-    const fileUrl = `${config.serverUrl}:${config.port}/uploads/images/${fileName}`;
+    // --- 修正：直接使用 SERVER_PUBLIC_URL，不再拼接端口号 ---
+    const fileUrl = `${config.serverUrl}/uploads/images/${fileName}`;
+    
     return {
       success: true,
       url: fileUrl,

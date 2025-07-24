@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as familyService from '../services/family.service.js';
 import * as memberService from '../services/member.service.js';
+import uploadService from '../services/upload.service.js';
 import { userActivityLogger, serverLogger } from '../utils/logger.js';
 
 /**
@@ -29,10 +30,10 @@ export const createFamily = async (req: Request, res: Response): Promise<void> =
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes('more than')) {
-        res.status(403).json({ code: 403, message: error.message });
+      res.status(403).json({ code: 403, message: error.message });
     } else {
-        serverLogger.error('Failed to create family:', error);
-        res.status(500).json({ code: 500, message: 'Failed to create family, please try again later' });
+      serverLogger.error('Failed to create family:', error);
+      res.status(500).json({ code: 500, message: 'Failed to create family, please try again later' });
     }
   }
 };
@@ -110,58 +111,56 @@ export const updateFamily = async (req: Request, res: Response): Promise<void> =
  * 删除家族
  */
 export const deleteFamily = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const familyId = parseInt(req.params.id, 10);
-        const userId = req.user?.userId;
+  try {
+    const familyId = parseInt(req.params.id, 10);
+    const userId = req.user?.userId;
 
-        if (!userId) {
-            res.status(401).json({ code: 401, message: 'User not authenticated' });
-            return;
-        }
-        if (isNaN(familyId)) {
-            res.status(400).json({ code: 400, message: 'Invalid family ID' });
-            return;
-        }
-
-        const success = await familyService.deleteFamily(familyId, userId);
-        if (!success) {
-            res.status(403).json({ code: 403, message: 'Family not found or no permission to delete' });
-            return;
-        }
-
-        userActivityLogger.info({ userId, action: 'delete_family', familyId });
-        res.status(200).json({ code: 200, message: 'Family deleted successfully' });
-    } catch (error) {
-        serverLogger.error('Failed to delete family:', error);
-        res.status(500).json({ code: 500, message: 'Failed to delete family' });
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
     }
+    if (isNaN(familyId)) {
+      res.status(400).json({ code: 400, message: 'Invalid family ID' });
+      return;
+    }
+
+    const success = await familyService.deleteFamily(familyId, userId);
+    if (!success) {
+      res.status(404).json({ code: 404, message: 'Family not found or no permission to delete' });
+      return;
+    }
+
+    userActivityLogger.info({ userId, action: 'delete_family', familyId });
+    res.status(200).json({ code: 200, message: 'Family deleted successfully' });
+  } catch (error) {
+    serverLogger.error('Failed to delete family:', error);
+    res.status(500).json({ code: 500, message: 'Failed to delete family' });
+  }
 };
 
 /**
  * 获取当前用户的所有家族
  */
 export const getUserFamilies = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const userId = req.user?.userId;
+  try {
+    const userId = req.user?.userId;
 
-        if (!userId) {
-            res.status(401).json({ code: 401, message: 'User not authenticated' });
-            return;
-        }
-
-        const families = await familyService.getUserFamilies(userId);
-        // 新增日志: 检查返回的数据
-        serverLogger.info(`[getUserFamilies] Returning data for userId: ${userId}`, { data: families });
-        
-        res.status(200).json({
-            code: 200,
-            message: 'Successfully fetched user families',
-            data: families
-        });
-    } catch (error) {
-        serverLogger.error('Failed to get user families:', error);
-        res.status(500).json({ code: 500, message: 'Failed to get user families' });
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
     }
+
+    const families = await familyService.getUserFamilies(userId);
+    serverLogger.info(`[getUserFamilies] Returning data for userId: ${userId}`, { data: families });
+    res.status(200).json({
+      code: 200,
+      message: 'Successfully fetched user families',
+      data: families
+    });
+  } catch (error) {
+    serverLogger.error('Failed to get user families:', error);
+    res.status(500).json({ code: 500, message: 'Failed to get user families' });
+  }
 };
 
 /**
@@ -173,18 +172,16 @@ export const getFamilyTree = async (req: Request, res: Response): Promise<void> 
     const userId = req.user?.userId;
 
     if (!userId) {
-        res.status(401).json({ code: 401, message: 'User not authenticated' });
-        return;
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
     }
     if (isNaN(familyId)) {
-        res.status(400).json({ code: 400, message: 'Invalid family ID' });
-        return;
+      res.status(400).json({ code: 400, message: 'Invalid family ID' });
+      return;
     }
 
     const familyTree = await familyService.getFamilyTree(familyId, userId);
-    // 新增日志: 检查返回的数据
     serverLogger.info(`[getFamilyTree] Returning data for familyId: ${familyId}, userId: ${userId}`, { data: familyTree });
-
     res.status(200).json({
       code: 200,
       message: 'Successfully fetched family tree',
@@ -197,13 +194,13 @@ export const getFamilyTree = async (req: Request, res: Response): Promise<void> 
 };
 
 /**
- * 获取家族的所有成员列表
+ * 获取家族的所有成员列表 (用于搜索)
  */
 export const getFamilyMembers = async (req: Request, res: Response): Promise<void> => {
   try {
     const familyId = parseInt(req.params.familyId, 10);
     const userId = req.user?.userId;
-    const searchTerm = req.query.search as string | undefined;
+    const searchName = req.query.search as string;
 
     if (!userId) {
       res.status(401).json({ code: 401, message: 'User not authenticated' });
@@ -214,7 +211,7 @@ export const getFamilyMembers = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const members = await familyService.getFamilyMembers(familyId, userId, searchTerm);
+    const members = await familyService.getFamilyMembers(familyId, userId, searchName);
     res.status(200).json({
       code: 200,
       message: 'Successfully fetched family members',
@@ -267,110 +264,237 @@ export const addFamilyMember = async (req: Request, res: Response): Promise<void
 };
 
 /**
- * [新增] 更新家族成员的角色
- */
-export const updateMemberRole = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const adminUserId = req.user?.userId;
-        const familyId = parseInt(req.params.familyId, 10);
-        const targetUserId = parseInt(req.params.userId, 10);
-        const { role } = req.body;
-
-        if (!adminUserId) {
-            res.status(401).json({ code: 401, message: 'User not authenticated' });
-            return;
-        }
-        if (isNaN(familyId) || isNaN(targetUserId)) {
-            res.status(400).json({ code: 400, message: 'Invalid family or user ID' });
-            return;
-        }
-        if (!['admin', 'editor', 'member'].includes(role)) {
-            res.status(400).json({ code: 400, message: 'Invalid role provided' });
-            return;
-        }
-
-        await familyService.updateMemberRole(familyId, adminUserId, targetUserId, role);
-        userActivityLogger.info({ adminUserId, action: 'update_role', familyId, targetUserId, newRole: role });
-        res.status(200).json({ code: 200, message: 'Member role updated successfully' });
-
-    } catch (error) {
-        serverLogger.error('Failed to update member role:', error);
-        if (error instanceof Error) {
-            if (error.message.includes('Permission denied') || error.message.includes('last admin')) {
-                res.status(403).json({ code: 403, message: error.message });
-                return;
-            }
-        }
-        res.status(500).json({ code: 500, message: 'Failed to update member role' });
-    }
-};
-
-/**
- * [新增] 创建一个邀请链接
+ * 创建邀请链接
  */
 export const createInvitation = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const familyId = parseInt(req.params.familyId, 10);
-        const inviterId = req.user?.userId;
+  try {
+    const familyId = parseInt(req.params.id, 10);
+    const inviterId = req.user?.userId;
 
-        if (!inviterId) {
-            res.status(401).json({ code: 401, message: 'User not authenticated' });
-            return;
-        }
-        if (isNaN(familyId)) {
-            res.status(400).json({ code: 400, message: 'Invalid family ID' });
-            return;
-        }
-
-        const invitation = await familyService.createInvitation(familyId, inviterId);
-        userActivityLogger.info({ userId: inviterId, action: 'create_invitation', familyId });
-        res.status(201).json({
-            code: 201,
-            message: 'Invitation created successfully',
-            data: {
-                token: invitation.token,
-                expires_at: invitation.expires_at
-            }
-        });
-    } catch (error) {
-        serverLogger.error('Failed to create invitation:', error);
-        res.status(500).json({ code: 500, message: 'Failed to create invitation' });
+    if (!inviterId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
     }
+
+    const invitation = await familyService.createInvitation(familyId, inviterId);
+    res.status(201).json({
+      code: 201,
+      message: 'Invitation created successfully',
+      data: invitation
+    });
+  } catch (error) {
+    serverLogger.error('Failed to create invitation:', error);
+    res.status(500).json({ code: 500, message: 'Failed to create invitation' });
+  }
 };
 
 /**
- * [新增] 接受邀请加入家族
+ * 接受邀请
  */
 export const acceptInvitation = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const newUserId = req.user?.userId;
-        const { token } = req.body;
+  try {
+    const { token } = req.body;
+    const userId = req.user?.userId;
 
-        if (!newUserId) {
-            res.status(401).json({ code: 401, message: 'User not authenticated' });
-            return;
-        }
-        if (!token) {
-            res.status(400).json({ code: 400, message: 'Invitation token is required' });
-            return;
-        }
-        
-        const result = await familyService.acceptInvitation(token, newUserId);
-
-        if (!result.success) {
-            res.status(400).json({ code: 400, message: result.message });
-            return;
-        }
-        
-        userActivityLogger.info({ userId: newUserId, action: 'accept_invitation', familyId: result.familyId });
-        res.status(200).json({
-            code: 200,
-            message: result.message,
-            data: { familyId: result.familyId }
-        });
-
-    } catch (error) {
-        serverLogger.error('Failed to accept invitation:', error);
-        res.status(500).json({ code: 500, message: 'Failed to process invitation' });
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
     }
+
+    const result = await familyService.acceptInvitation(token, userId);
+    res.status(200).json({
+      code: 200,
+      message: 'Successfully joined the family',
+      data: result
+    });
+  } catch (error) {
+    serverLogger.error('Failed to accept invitation:', error);
+    if (error instanceof Error) {
+      res.status(400).json({ code: 400, message: error.message });
+    } else {
+      res.status(500).json({ code: 500, message: 'An unknown error occurred' });
+    }
+  }
 };
+
+/**
+ * 认领成员
+ */
+export const claimMember = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const familyId = parseInt(req.params.familyId, 10);
+    const userId = req.user?.userId;
+    const { memberId } = req.body;
+
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
+    }
+    if (!memberId) {
+      res.status(400).json({ code: 400, message: 'Member ID is required for claiming' });
+      return;
+    }
+
+    await familyService.claimMember(familyId, userId, memberId);
+    userActivityLogger.info({ userId, action: 'claim_member', familyId, memberId });
+    res.status(200).json({ code: 200, message: 'Member claimed successfully' });
+
+  } catch (error) {
+    serverLogger.error('Failed to claim member:', error);
+    if (error instanceof Error) {
+      res.status(400).json({ code: 400, message: error.message });
+    } else {
+      res.status(500).json({ code: 500, message: 'An unknown error occurred' });
+    }
+  }
+};
+
+/**
+ * 获取家族成员角色列表 (用于成员管理)
+ */
+export const getFamilyRoles = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const familyId = parseInt(req.params.id, 10);
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
+    }
+
+    const roles = await familyService.getFamilyRoles(familyId, userId);
+    res.status(200).json({
+      code: 200,
+      message: 'Successfully fetched family roles',
+      data: roles
+    });
+  } catch (error) {
+    serverLogger.error('Failed to get family roles:', error);
+    if (error instanceof Error && error.message.includes('permission')) {
+      res.status(403).json({ code: 403, message: error.message });
+    } else {
+      res.status(500).json({ code: 500, message: 'Failed to get family roles' });
+    }
+  }
+};
+
+/**
+ * 更新家族成员的角色
+ */
+export const updateMemberRole = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const familyId = parseInt(req.params.familyId, 10);
+    const memberUserId = parseInt(req.params.userId, 10); // 注意：这里是被操作用户的 user ID
+    const { role } = req.body;
+    const operatorId = req.user?.userId;
+
+    if (!operatorId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
+    }
+    if (!role || !['admin', 'editor', 'member'].includes(role)) {
+      res.status(400).json({ code: 400, message: 'Invalid role provided' });
+      return;
+    }
+
+    await familyService.updateMemberRole(familyId, operatorId, memberUserId, role);
+
+    userActivityLogger.info({ operatorId, action: 'update_member_role', familyId, targetUserId: memberUserId, newRole: role });
+    res.status(200).json({ code: 200, message: 'Member role updated successfully' });
+
+  } catch (error) {
+    serverLogger.error('Failed to update member role:', error);
+    if (error instanceof Error) {
+      res.status(403).json({ code: 403, message: error.message });
+    } else {
+      res.status(500).json({ code: 500, message: 'An unknown error occurred' });
+    }
+  }
+};
+
+
+
+/**
+ * 上传/更新家族头像
+ */
+export const uploadAvatar = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const familyId = parseInt(req.params.id, 10);
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ code: 400, message: 'No file uploaded' });
+      return;
+    }
+
+    const uploadResult = await uploadService.uploadFile(req.file);
+    if (!uploadResult.success || !uploadResult.url) {
+      res.status(500).json({ code: 500, message: uploadResult.error || 'Failed to upload file' });
+      return;
+    }
+
+    const updatedFamily = await familyService.updateFamilyAvatar(familyId, userId, uploadResult.url);
+
+    if (!updatedFamily) {
+      res.status(403).json({ code: 403, message: 'Permission denied or family not found' });
+      return;
+    }
+
+    userActivityLogger.info({ userId, action: 'upload_family_avatar', familyId });
+    res.status(200).json({
+      code: 200,
+      message: 'Family avatar updated successfully',
+      data: { url: uploadResult.url } // <-- 修正：直接返回上传的URL
+    });
+  } catch (error) {
+    serverLogger.error('Failed to upload family avatar:', error);
+    res.status(500).json({ code: 500, message: 'Failed to upload family avatar' });
+  }
+};
+
+/**
+ * 上传/更新家族背景图
+ */
+export const uploadBanner = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const familyId = parseInt(req.params.id, 10);
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ code: 401, message: 'User not authenticated' });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ code: 400, message: 'No file uploaded' });
+      return;
+    }
+
+    const uploadResult = await uploadService.uploadFile(req.file);
+    if (!uploadResult.success || !uploadResult.url) {
+      res.status(500).json({ code: 500, message: uploadResult.error || 'Failed to upload file' });
+      return;
+    }
+
+    const updatedFamily = await familyService.updateFamilyBanner(familyId, userId, uploadResult.url);
+
+    if (!updatedFamily) {
+      res.status(403).json({ code: 403, message: 'Permission denied or family not found' });
+      return;
+    }
+    
+    userActivityLogger.info({ userId, action: 'upload_family_banner', familyId });
+    res.status(200).json({
+      code: 200,
+      message: 'Family banner updated successfully',
+      data: { url: uploadResult.url } // <-- 修正：直接返回上传的URL
+    });
+  } catch (error) {
+    serverLogger.error('Failed to upload family banner:', error);
+    res.status(500).json({ code: 500, message: 'Failed to upload family banner' });
+  }
+};
+
