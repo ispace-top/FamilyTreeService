@@ -16,7 +16,7 @@ RUN yarn install --production
 COPY . .
 
 # 6. 新增：给予入口脚本可执行权限
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/scripts/entrypoint.sh
 
 # 7. 全局安装 PM2
 RUN yarn global add pm2
