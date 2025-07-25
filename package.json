@@ -27,6 +27,7 @@
     "mysql2": "^3.14.2",
     "node-fetch": "^3.3.2",
     "winston": "^3.17.0",
+    "cos-nodejs-sdk-v5": "^2.16.0-beta.3",
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
