@@ -126,7 +126,7 @@ export const linkSpouse = async (req: Request, res: Response): Promise<void> => 
             return;
         }
 
-        const success = await memberService.linkSpouse(memberId, spouseId, userId);
+        const success = await memberService.linkSpouse(memberId,userId,spouseId);
 
         if (success) {
             userActivityLogger.info({ userId, action: 'link_spouse', memberId, spouseId });
