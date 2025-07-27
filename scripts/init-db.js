@@ -1,8 +1,12 @@
 // init-db.js
-require('dotenv').config(); // 在最开始加载环境变量
-const fs = require('fs');
-const path = require('path');
-const mysql = require('mysql2/promise');
+import dotenv from 'dotenv';
+dotenv.config(); // 在最开始加载环境变量
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+import mysql from 'mysql2/promise';
 
 const run = async () => {
   console.log('开始执行数据库初始化脚本...');
@@ -23,7 +27,7 @@ const run = async () => {
     console.log('MySQL服务连接成功！');
 
     // 2. 读取SQL文件内容
-    const sqlFilePath = path.join(__dirname, 'db_scripts', 'schema.sql');
+    const sqlFilePath = path.join(process.cwd(), 'db_scripts', 'schema.sql');
     const sqlScript = fs.readFileSync(sqlFilePath, 'utf-8');
     console.log('成功读取 schema.sql 文件。');
 
